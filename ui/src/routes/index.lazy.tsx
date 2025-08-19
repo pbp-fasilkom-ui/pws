@@ -59,7 +59,7 @@ function Index() {
             <div className="grid grid-cols-2 gap-8">
               {projects?.data?.map((item: any) => (
                 <Link
-                  href={`/web/${item.owner_name}/${item.name}/`}
+                  href={`/web/project/${item.owner_name}/${item.name}/`}
                   to="/project/$owner/$project"
                   params={{
                     owner: item.owner_name,
@@ -72,9 +72,9 @@ function Index() {
                     <h2 className="text-sm text-blue-400">{item.id}</h2>
                   </div>
 
-                  <Badge className="bg-slate-700 hover:bg-slate-700 text-white rounded-full font-medium">
+                  {/* <Badge className="bg-slate-700 hover:bg-slate-700 text-white rounded-full font-medium">
                     Status: Empty
-                  </Badge>
+                  </Badge> */}
                 </Link>
               ))}
             </div>

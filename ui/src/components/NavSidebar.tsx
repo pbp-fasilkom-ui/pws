@@ -56,7 +56,6 @@ export default function NavSidebar({ className }: NavSidebarProps): ReactElement
       <div className="flex flex-col items-center justify-start px-4 py-4 space-y-2 max-h-64 overflow-y-auto">
         <Link
           className="flex items-center space-x-4 w-full py-2 px-4 rounded-lg hover:bg-slate-700 transition-all"
-          href="/web"
           to="/"
           activeProps={{
             className: "bg-slate-700"
