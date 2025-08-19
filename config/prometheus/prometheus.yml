@@ -20,7 +20,11 @@ scrape_configs:
   #   static_configs:
   #     - targets: ['localhost:9113']
 
-  - job_name: 'docker'
+  # - job_name: 'docker'
+  #   static_configs:
+  #     # - targets: ['localhost:9323']
+  #     - targets: ['docker-host:9323']
+
+  - job_name: 'cadvisor'
     static_configs:
-      # - targets: ['localhost:9323']
-      - targets: ['docker-host:9323']
+      - targets: ['cadvisor:8080']

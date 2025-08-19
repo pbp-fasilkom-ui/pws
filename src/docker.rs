@@ -15,7 +15,7 @@ use crate::{dockerfile_templates::DjangoDockerfile, get_env, configuration::Sett
 use sqlx::PgPool;
 use tokio::process::Command;
 
-use crate::get_env;
+// use crate::get_env;
 
 pub struct DockerContainer {
     pub ip: String,
