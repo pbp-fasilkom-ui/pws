@@ -1,6 +1,7 @@
 use axum::extract::{Host, State};
 use axum::middleware::Next;
 use axum::response::Redirect;
+use axum::routing::get;
 use axum::{middleware, routing, Router};
 
 use axum_session::{SessionLayer, SessionPgPool};
@@ -73,6 +74,7 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
                 .with_config(auth_config),
         )
         .layer(SessionLayer::new(session_store))
+        .route("/health", get(health_check))  // Health check without auth layers
         .nest_service("/assets", ServeDir::new("assets"))
         // TODO: find a way to have this on the "/" path instead of "/web"
         .nest_service(
@@ -95,6 +97,14 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
         .serve(app.into_make_service_with_connect_info::<SocketAddr>())
         .await
         .map_err(|err| format!("failed to start server: {}", err))
+}
+
+pub async fn health_check() -> Response<Body> {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "text/plain")
+        .body(Body::from("OK"))
+        .unwrap()
 }
 
 pub async fn fallback(
@@ -296,3 +306,4 @@ pub async fn fallback_middleware(
             .unwrap())
     }
 }
+

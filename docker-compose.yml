@@ -24,14 +24,16 @@ services:
       - "${DB_PORT}:${DB_PORT}"
 
   server:
-    container_name: server-pemasak
+    # container_name: server-pemasak
     restart: always
     env_file: .env
     build:
       context: .
       dockerfile: Dockerfile
-    ports:
-      - "8080:8080"
+    # ports:
+    #   - "8080:8080"
+    expose:
+      - "8080"
     environment:
       - "GIT_BASE=./git-repo"
     volumes:
@@ -43,13 +45,19 @@ services:
         condition: service_started
     networks:
       - pemasak
+    deploy:
+      replicas: 3
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.pws.rule=Host(`${DOMAIN:-localhost}`) || Host(`www.${DOMAIN:-localhost}`)"
       - "traefik.http.routers.pws.entrypoints=websecure"
       - "traefik.http.routers.pws.tls.certresolver=buypass"
       - "traefik.http.services.pws.loadbalancer.server.port=8080"
-
+      - "traefik.http.services.pws.loadbalancer.sticky.cookie=true"
+      - "traefik.http.services.pws.loadbalancer.sticky.cookie.name=server-sticky"
+      # Health check disabled for now, can be added later y
+      # - "traefik.http.services.pws.loadbalancer.healthcheck.path=/health"
+      # - "traefik.http.services.pws.loadbalancer.healthcheck.interval=30s"
   # Skip monitoring stack for Windows (Optional)
   prometheus:
     image: prom/prometheus
@@ -189,6 +197,8 @@ services:
 
 volumes:
   db-data:
+    driver: local
+  git-repo-data:
     driver: local
   prom_data:
     driver: local
