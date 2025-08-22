@@ -22,7 +22,11 @@ async fn main() {
     };
 
     let pool = match PgPoolOptions::new()
+        .max_connections(250) 
+        .min_connections(30) 
         .acquire_timeout(std::time::Duration::from_secs(config.database.timeout))
+        .idle_timeout(std::time::Duration::from_secs(600))  // 10 minutes
+        .max_lifetime(std::time::Duration::from_secs(1800)) // 30 minutes
         .connect_with(config.connection_options())
         .await
     {

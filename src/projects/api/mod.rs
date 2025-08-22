@@ -16,6 +16,7 @@ mod update_project_environ;
 mod delete_project_environ;
 mod bulk_update_project_environ;
 mod generate_status_badge;
+mod get_project_status;
 mod get_git_credentials;
 mod regenerate_git_password;
 
@@ -35,4 +36,5 @@ pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Bo
         .route_with_tsr("/api/project/:owner/:project/regenerate-git-password", post(regenerate_git_password::post))
         .route_layer(middleware::from_fn(auth))
         .route_with_tsr("/api/project/:owner/:project/badge/status", get(generate_status_badge::get))
+        .route_with_tsr("/api/project/:owner/:project/status", get(get_project_status::get))
 }
