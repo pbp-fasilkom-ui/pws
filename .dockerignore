@@ -5,6 +5,7 @@ git-repo
 configuration.yml
 .env
 test
+ssl
 
 .git
 config

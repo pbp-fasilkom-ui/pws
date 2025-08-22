@@ -8,3 +8,4 @@ configuration.yaml
 /test
 .vscode
 letsencrypt
+ssl

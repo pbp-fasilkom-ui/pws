@@ -5,9 +5,6 @@ global:
 
 scrape_configs:
   - job_name: 'prometheus'
-    basic_auth:
-      username: chef
-      password: strong-powerful-password
     scrape_interval: 1m
     static_configs:
       - targets: ['prometheus:9090']
@@ -15,12 +12,3 @@ scrape_configs:
   - job_name: 'node'
     static_configs:
       - targets: ['node-exporter:9100']
-
-  # - job_name: 'nginx'
-  #   static_configs:
-  #     - targets: ['localhost:9113']
-
-  - job_name: 'docker'
-    static_configs:
-      # - targets: ['localhost:9323']
-      - targets: ['docker-host:9323']

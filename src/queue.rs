@@ -5,6 +5,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
+    time::{SystemTime, Duration},
 };
 
 use anyhow::Result;
@@ -12,6 +13,7 @@ use sqlx::PgPool;
 use thiserror::Error;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::Mutex;
+use tokio::time::{timeout, sleep};
 use ulid::Ulid;
 use uuid::Uuid;
 
@@ -23,7 +25,7 @@ type ConcurrentMutex<T> = Arc<Mutex<T>>;
 #[error("{message:?}")]
 pub struct BuildError {
     message: String,
-    inner_error: Option<Box<dyn std::error::Error>>,
+    inner_error: Option<Box<dyn std::error::Error + Send + Sync>>,
 }
 #[derive(Debug)]
 pub struct BuildQueueItem {
@@ -40,7 +42,11 @@ pub struct BuildItem {
     pub container_src: String,
     pub owner: String,
     pub repo: String,
+    pub created_at: SystemTime,
 }
+
+unsafe impl Send for BuildItem {}
+unsafe impl Sync for BuildItem {}
 
 impl Hash for BuildItem {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -90,6 +96,7 @@ pub async fn trigger_build(
         repo,
         container_src,
         container_name,
+        created_at: _,
     }: BuildItem,
     pool: PgPool,
     config: &Settings,
@@ -117,7 +124,7 @@ pub async fn trigger_build(
         },
         Err(err) => Err(BuildError {
             message: "Can't get project: Failed to query database".to_string(),
-            inner_error: Some(err.into()),
+            inner_error: Some(Box::new(err)),
         }),
     }?;
 
@@ -138,7 +145,7 @@ pub async fn trigger_build(
         }),
         Err(err) => Err(BuildError {
             message: "Can't create build: Failed to query database".to_string(),
-            inner_error: Some(err.into()),
+            inner_error: Some(Box::new(err)),
         }),
     }?;
 
@@ -151,7 +158,7 @@ pub async fn trigger_build(
     {
         return Err(BuildError {
             message: "Failed to update build status: Failed to query database".to_string(),
-            inner_error: Some(err.into()),
+            inner_error: Some(Box::new(err)),
         });
     }
 
@@ -170,7 +177,7 @@ pub async fn trigger_build(
             {
                 return Err(BuildError {
                     message: "Failed to update build status: Failed to query database".to_string(),
-                    inner_error: Some(err.into()),
+                    inner_error: Some(Box::new(err)),
                 });
             }
 
@@ -189,13 +196,13 @@ pub async fn trigger_build(
                     message: format!(
                         "Failed to update build status: Failed to query database: {repo}"
                     ),
-                    inner_error: Some(err.into()),
+                    inner_error: Some(Box::new(err)),
                 });
             }
 
             return Err(BuildError {
-                message: format!("A build error occured while building repository: {repo}"),
-                inner_error: Some(err.into()),
+                message: format!("A build error occurred while building repository: {repo}"),
+                inner_error: None,
             });
         }
     }?;
@@ -229,14 +236,14 @@ pub async fn trigger_build(
             match subdomain {
                 Ok(_) => Ok(container_name),
                 Err(err) => Err(BuildError {
-                    inner_error: Some(err.into()),
+                    inner_error: Some(Box::new(err)),
                     message: "Can't insert domain: Failed to query database".to_string(),
                 }),
             }
         }
         Err(err) => Err(BuildError {
             message: "Can't get subdomain: Failed to query database".to_string(),
-            inner_error: Some(err.into()),
+            inner_error: Some(Box::new(err)),
         }),
     }?;
 
@@ -249,41 +256,110 @@ pub async fn process_task_poll(
     build_count: Arc<AtomicUsize>,
     pool: PgPool,
     config: Settings,
-) {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut last_metrics_log = SystemTime::now();
+    
     loop {
         let mut waiting_queue = waiting_queue.lock().await;
         let mut waiting_set = waiting_set.lock().await;
 
-        let build_count = Arc::clone(&build_count);
+        let current_build_count = build_count.load(Ordering::SeqCst);
+        let queue_len = waiting_queue.len();
+        
+        // Log metrics every 30 seconds
+        if last_metrics_log.elapsed().unwrap_or(Duration::ZERO) > Duration::from_secs(30) {
+            tracing::info!(
+                "BUILD_QUEUE_METRICS: available_slots={}, queue_length={}, waiting_set_size={}", 
+                current_build_count, queue_len, waiting_set.len()
+            );
+            last_metrics_log = SystemTime::now();
+        }
 
-        if build_count.load(Ordering::SeqCst) > 0 && waiting_queue.len() > 0 {
+        if current_build_count > 0 && queue_len > 0 {
             let build_item = match waiting_queue.pop_front() {
                 Some(build_item) => build_item,
-                None => continue,
+                None => {
+                    drop(waiting_queue);
+                    drop(waiting_set);
+                    continue;
+                },
             };
+            
+            tracing::info!(
+                "BUILD_STARTING: build_id={}, container={}, owner={}, repo={}, queue_wait_time={}ms", 
+                build_item.build_id, 
+                build_item.container_name, 
+                build_item.owner, 
+                build_item.repo,
+                build_item.created_at.elapsed().unwrap_or(Duration::ZERO).as_millis()
+            );
+            
             waiting_set.remove(&build_item.container_name);
+            drop(waiting_queue);
+            drop(waiting_set);
 
             {
                 let build_count = Arc::clone(&build_count);
                 let pool = pool.clone();
                 let config = config.clone();
+                let build_id = build_item.build_id;
+                let container_name = build_item.container_name.clone();
 
                 build_count.fetch_sub(1, Ordering::SeqCst);
                 tokio::spawn(async move {
-                    match trigger_build(build_item, pool, &config).await {
-                        Ok(subdomain) => tracing::info!("Project deployed at {subdomain}"),
-                        Err(BuildError {
-                            message,
-                            inner_error,
-                        }) => tracing::error!(?inner_error, message),
-                    };
+                    let build_start = SystemTime::now();
+                    
+                    // Add timeout wrapper around trigger_build
+                    let build_timeout = Duration::from_secs(config.build.timeout as u64 / 1000); // Convert from ms
+                    let build_result = timeout(build_timeout, trigger_build(build_item, pool.clone(), &config)).await;
+                    
+                    match build_result {
+                        Ok(Ok(subdomain)) => {
+                            let build_duration = build_start.elapsed().unwrap_or(Duration::ZERO);
+                            tracing::info!(
+                                "BUILD_SUCCESS: build_id={}, container={}, subdomain={}, duration={}ms", 
+                                build_id, container_name, subdomain, build_duration.as_millis()
+                            );
+                        },
+                        Ok(Err(BuildError { message, inner_error })) => {
+                            let build_duration = build_start.elapsed().unwrap_or(Duration::ZERO);
+                            tracing::error!(
+                                "BUILD_ERROR: build_id={}, container={}, duration={}ms, error={}, inner_error={:?}", 
+                                build_id, container_name, build_duration.as_millis(), message, inner_error
+                            );
+                        },
+                        Err(_timeout_error) => {
+                            tracing::error!(
+                                "BUILD_TIMEOUT: build_id={}, container={}, timeout_seconds={}", 
+                                build_id, container_name, build_timeout.as_secs()
+                            );
+                            
+                            // Mark build as failed due to timeout
+                            let timeout_msg = format!("Build timeout after {} seconds", build_timeout.as_secs());
+                            if let Err(err) = sqlx::query!(
+                                "UPDATE builds SET status = 'failed', log = $1 WHERE id = $2",
+                                timeout_msg,
+                                build_id
+                            )
+                            .execute(&pool)
+                            .await
+                            {
+                                tracing::error!("Failed to update timeout build status: {:?}", err);
+                            }
+                        }
+                    }
 
-                    build_count.fetch_add(1, Ordering::SeqCst);
+                    let final_count = build_count.fetch_add(1, Ordering::SeqCst) + 1;
+                    tracing::debug!("BUILD_SLOT_RELEASED: build_id={}, available_slots={}", build_id, final_count);
                 });
             }
+        } else {
+            drop(waiting_queue);
+            drop(waiting_set);
         }
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        sleep(Duration::from_millis(5)).await;
     }
+    Ok(())
 }
 
 pub async fn process_task_enqueue(
@@ -352,11 +428,17 @@ pub async fn process_task_enqueue(
 
         let build_item = BuildItem {
             build_id,
-            container_name,
+            container_name: container_name.clone(),
             container_src,
-            owner,
-            repo,
+            owner: owner.clone(),
+            repo: repo.clone(),
+            created_at: SystemTime::now(),
         };
+        
+        tracing::info!(
+            "BUILD_ENQUEUED: build_id={}, container={}, owner={}, repo={}, queue_position={}", 
+            build_id, container_name, owner, repo, waiting_queue.len()
+        );
 
         waiting_set.insert(build_item.container_name.clone());
         waiting_queue.push_back(build_item);
@@ -372,7 +454,7 @@ pub async fn build_queue_handler(build_queue: BuildQueue) {
         let build_count = Arc::clone(&build_queue.build_count);
 
         tokio::spawn(async move {
-            process_task_poll(waiting_queue, waiting_set, build_count, pool, config).await;
+            let _ = process_task_poll(waiting_queue, waiting_set, build_count, pool, config).await;
         });
     }
     {
