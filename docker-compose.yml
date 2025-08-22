@@ -6,12 +6,20 @@ services:
     volumes:
       - db-data:/var/lib/postgresql/data
       - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./postgresql.conf:/etc/postgresql/postgresql.conf
     restart: always
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
       PGPORT: ${DB_PORT}
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    deploy:
+      resources:
+        limits:
+          memory: 32G  # 25% of 128GB total RAM
+        reservations:
+          memory: 16G  # Minimum reserved
     healthcheck:
       test: ["CMD-SHELL", "pg_isready", "-d", "${DB_NAME}"]
       interval: 30s
@@ -24,16 +32,14 @@ services:
       - "${DB_PORT}:${DB_PORT}"
 
   server:
-    # container_name: server-pemasak
+    container_name: server-pemasak
     restart: always
     env_file: .env
     build:
       context: .
       dockerfile: Dockerfile
-    # ports:
-    #   - "8080:8080"
-    expose:
-      - "8080"
+    ports:
+      - "8080:8080"
     environment:
       - "GIT_BASE=./git-repo"
     volumes:
@@ -45,19 +51,13 @@ services:
         condition: service_started
     networks:
       - pemasak
-    deploy:
-      replicas: 3
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.pws.rule=Host(`${DOMAIN:-localhost}`) || Host(`www.${DOMAIN:-localhost}`)"
       - "traefik.http.routers.pws.entrypoints=websecure"
-      - "traefik.http.routers.pws.tls.certresolver=buypass"
+      - "traefik.http.routers.pws.tls.certresolver=letsencrypt"
       - "traefik.http.services.pws.loadbalancer.server.port=8080"
-      - "traefik.http.services.pws.loadbalancer.sticky.cookie=true"
-      - "traefik.http.services.pws.loadbalancer.sticky.cookie.name=server-sticky"
-      # Health check disabled for now, can be added later y
-      # - "traefik.http.services.pws.loadbalancer.healthcheck.path=/health"
-      # - "traefik.http.services.pws.loadbalancer.healthcheck.interval=30s"
+
   # Skip monitoring stack for Windows (Optional)
   prometheus:
     image: prom/prometheus
@@ -114,7 +114,7 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.grafana.rule=Host(`grafana.${DOMAIN:-localhost}`)"
       - "traefik.http.routers.grafana.entrypoints=websecure"
-      - "traefik.http.routers.grafana.tls.certresolver=buypass"
+      - "traefik.http.routers.grafana.tls=true"
       - "traefik.http.services.grafana.loadbalancer.server.port=3000"
 
   portainer:
@@ -132,7 +132,7 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.portainer.rule=Host(`portainer.${DOMAIN:-localhost}`)"
       - "traefik.http.routers.portainer.entrypoints=websecure"
-      - "traefik.http.routers.portainer.tls.certresolver=buypass"
+      - "traefik.http.routers.portainer.tls=true"
       - "traefik.http.services.portainer.loadbalancer.server.port=9000"
 
   docs-ui:
@@ -151,7 +151,7 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.docs.rule=Host(`docs.${DOMAIN:-localhost}`)"
       - "traefik.http.routers.docs.entrypoints=websecure"
-      - "traefik.http.routers.docs.tls.certresolver=buypass"
+      - "traefik.http.routers.docs.tls=true"
       - "traefik.http.services.docs.loadbalancer.server.port=3001"
 
   traefik:
@@ -160,18 +160,30 @@ services:
     env_file: .env
     command: 
       - --api.insecure=true
-      - --providers.docker
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
       - --accesslog=true
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
+      # Manual wildcard certificates from ssl/ folder
+      - --providers.file.directory=/ssl
+      - --providers.file.watch=true
+      # Buypass ACME for root domain (HTTP challenge) - RATE LIMITED
       - --certificatesresolvers.buypass.acme.httpchallenge=true
       - --certificatesresolvers.buypass.acme.httpchallenge.entrypoint=web
       - --certificatesresolvers.buypass.acme.email=${ACME_EMAIL}
-      - --certificatesresolvers.buypass.acme.storage=/acme/acme.json
+      - --certificatesresolvers.buypass.acme.storage=/acme/buypass.json
       - --certificatesresolvers.buypass.acme.caserver=https://api.buypass.com/acme/directory
-      # HTTP to HTTPS redirect
+      # Let's Encrypt ACME for apex domain (no EAB required)
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge=true
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}
+      - --certificatesresolvers.letsencrypt.acme.storage=/acme/letsencrypt.json
+      - --certificatesresolvers.letsencrypt.acme.caserver=https://acme-v02.api.letsencrypt.org/directory
+      # HTTP to HTTPS redirect (excluding ACME challenge)
       - --entrypoints.web.http.redirections.entrypoint.to=websecure
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.web.http.redirections.entrypoint.permanent=true
     ports:
       - "80:80"
       - "443:443"
@@ -185,6 +197,7 @@ services:
         condition: service_started
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./ssl:/ssl:ro
       - traefik-data:/acme
     networks:
       - pemasak
@@ -192,13 +205,11 @@ services:
       - "traefik.enable=true"
       - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN:-localhost}`)"
       - "traefik.http.routers.traefik.entrypoints=websecure"
-      - "traefik.http.routers.traefik.tls.certresolver=buypass"
+      - "traefik.http.routers.traefik.tls=true"
       - "traefik.http.services.traefik.loadbalancer.server.port=8080"
 
 volumes:
   db-data:
-    driver: local
-  git-repo-data:
     driver: local
   prom_data:
     driver: local
@@ -213,3 +224,7 @@ networks:
   pemasak:
     name: pemasak  # Explicit network name without project prefix
     driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16  # Support up to 65,534 containers (was /24 = 254)
