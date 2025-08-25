@@ -1,0 +1,38 @@
+services:
+  docker-prune-cron:
+    container_name: docker-prune-cron-pemasak
+    build:
+      context: .
+      dockerfile: Dockerfile.cron
+    restart: always
+    environment:
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - PRUNE_CONTAINERS=${PRUNE_CONTAINERS}
+      - PRUNE_IMAGES=${PRUNE_IMAGES}
+      - PRUNE_VOLUMES=${PRUNE_VOLUMES}
+      - PRUNE_BUILDER_CACHE=${PRUNE_BUILDER_CACHE}
+      - TZ=Asia/Jakarta
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - docker-prune-logs:/var/log
+    networks:
+      - pemasak
+    labels:
+      - "traefik.enable=false"
+    healthcheck:
+      test: ["CMD", "sh", "-c", "ps aux | grep -v grep | grep crond || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  docker-prune-logs:
+    driver: local
+
+networks:
+  pemasak:
+    external: true
+    name: pemasak
+
+
