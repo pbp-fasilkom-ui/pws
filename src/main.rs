@@ -22,8 +22,8 @@ async fn main() {
     };
 
     let pool = match PgPoolOptions::new()
-        .max_connections(250) 
-        .min_connections(30) 
+        .max_connections(300) 
+        .min_connections(40) 
         .acquire_timeout(std::time::Duration::from_secs(config.database.timeout))
         .idle_timeout(std::time::Duration::from_secs(600))  // 10 minutes
         .max_lifetime(std::time::Duration::from_secs(1800)) // 30 minutes

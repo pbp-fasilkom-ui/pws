@@ -17,9 +17,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 32G  # 25% of 128GB total RAM
+          memory: 24G  # ~19% of 128GB total RAM  
         reservations:
-          memory: 16G  # Minimum reserved
+          memory: 12G  # Minimum reserved
     healthcheck:
       test: ["CMD-SHELL", "pg_isready", "-d", "${DB_NAME}"]
       interval: 30s
@@ -153,6 +153,7 @@ services:
       - "traefik.http.routers.docs.entrypoints=websecure"
       - "traefik.http.routers.docs.tls=true"
       - "traefik.http.services.docs.loadbalancer.server.port=3001"
+
 
   traefik:
     container_name: traefik-pemasak

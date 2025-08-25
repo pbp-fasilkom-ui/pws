@@ -97,15 +97,19 @@ async fn basic_auth<B>(
                 Err(_) => return Err(auth_err),
             };
 
-            let hasher = Argon2::default();
+            tracing::debug!("AUTH_DEBUG: Auth attempt - owner: {}, repo: {}, token: {}", owner_name, repo, token);
+            tracing::debug!("AUTH_DEBUG: Found {} tokens in database", tokens.len());
+            
             let authenticated = tokens.iter().any(|rec| {
-                let hash_match = PasswordHash::new(&rec.token)
-                    .and_then(|hash| hasher.verify_password(token.as_bytes(), &hash))
-                    .is_ok();
-
+                tracing::info!("Checking token - project: {}, owner: {}, stored_token: {}", rec.project_name, rec.project_owner, rec.token);
+                
+                // Use plain text comparison instead of argon2 hashing
+                let token_match = rec.token == token;
                 let authorization_match = rec.project_name == repo && rec.project_owner == owner_name;
+                
+                tracing::info!("Token match: {}, Authorization match: {}", token_match, authorization_match);
 
-                hash_match && authorization_match
+                token_match && authorization_match
             });
             
             if !authenticated {
