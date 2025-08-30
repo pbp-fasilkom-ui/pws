@@ -374,9 +374,12 @@ fn normal_merge(
             repo.merge_trees(&ancestor, &local_tree, &remote_tree, None)?
         }
         Err(_) => {
-            // No common ancestor - treat as force push, use remote tree directly
-            tracing::warn!("No merge base found, treating as force push");
-            repo.merge_trees(&local_tree, &local_tree, &remote_tree, None)?
+            // No common ancestor - treat as force push, update HEAD directly to remote
+            tracing::warn!("No merge base found, treating as force push and then set head to remote commit directly");
+            // Set HEAD to remote commit directly (force push behavior)
+            repo.set_head_detached(remote.id())?;
+            repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))?;
+            return Ok(()); // Skip merge commit creation for force push
         }
     };
 
