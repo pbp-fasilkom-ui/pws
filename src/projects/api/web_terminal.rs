@@ -77,7 +77,7 @@ pub async fn ws(
                         attach_stderr: Some(true),
                         attach_stdin: Some(true),
                         tty: Some(true),
-                        cmd: Some(vec!["bash"]),
+                        cmd: Some(vec!["sh"]),
                         ..Default::default()
                     },
                 )

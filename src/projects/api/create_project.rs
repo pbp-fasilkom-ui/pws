@@ -213,29 +213,14 @@ pub async fn post(
         })
         .collect::<String>();
 
-    let salt = SaltString::generate(&mut OsRng);
-    let hasher = Argon2::default();
-    let hash = match hasher.hash_password(token.as_bytes(), &salt) {
-        Ok(hash) => hash,
-        Err(err) => {
-            tracing::error!(?err, "Can't create project: Failed to hash token");
-
-            let json = serde_json::to_string(&ErrorResponse {
-                message: format!("Failed to generate token {}", err.to_string())
-            }).unwrap();
-            
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::from(json))
-                .unwrap();
-        }
-    };
+    // Store token as plain text for easier debugging
+    // Keep argon2 imports to avoid compile errors
 
     if let Err(err) = sqlx::query!(
         "INSERT INTO api_token (id, project_id, token) VALUES ($1, $2, $3)",
         Uuid::from(Ulid::new()),
         project_id,
-        hash.to_string(),
+        token,
     )
     .execute(&mut *tx)
     .await

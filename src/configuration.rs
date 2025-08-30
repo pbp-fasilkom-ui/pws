@@ -83,7 +83,7 @@ pub fn get_configuration() -> Result<Settings, ConfigError> {
         .set_default("application.domain", "localhost:8080")?
         .set_default("application.bodylimit", "25mib")?
         .set_default("application.ipv6", false)?
-        .set_default("application.secure", false)?
+        .set_default("application.secure", true)?
         .set_default("database.user", "postgres")?
         .set_default("database.password", "postgres")?
         .set_default("database.host", "localhost")?
@@ -97,7 +97,7 @@ pub fn get_configuration() -> Result<Settings, ConfigError> {
         .set_default("auth.cookiename", "session")?
         .set_default("auth.maxage", 365)?
         .set_default("auth.httponly", true)?
-        .set_default("auth.secure", false)?
+        .set_default("auth.secure", true)?
         .set_default("auth.maxlifespan", 365)?
         .set_default("build.timeout", 120000)?
         .set_default("container.cpu", 0.5)?

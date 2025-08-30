@@ -97,15 +97,19 @@ async fn basic_auth<B>(
                 Err(_) => return Err(auth_err),
             };
 
-            let hasher = Argon2::default();
+            tracing::debug!("AUTH_DEBUG: Auth attempt - owner: {}, repo: {}, token: {}", owner_name, repo, token);
+            tracing::debug!("AUTH_DEBUG: Found {} tokens in database", tokens.len());
+            
             let authenticated = tokens.iter().any(|rec| {
-                let hash_match = PasswordHash::new(&rec.token)
-                    .and_then(|hash| hasher.verify_password(token.as_bytes(), &hash))
-                    .is_ok();
-
+                tracing::info!("Checking token - project: {}, owner: {}, stored_token: {}", rec.project_name, rec.project_owner, rec.token);
+                
+                // Use plain text comparison instead of argon2 hashing
+                let token_match = rec.token == token;
                 let authorization_match = rec.project_name == repo && rec.project_owner == owner_name;
+                
+                tracing::info!("Token match: {}, Authorization match: {}", token_match, authorization_match);
 
-                hash_match && authorization_match
+                token_match && authorization_match
             });
             
             if !authenticated {
@@ -361,10 +365,23 @@ fn normal_merge(
 ) -> Result<(), git2::Error> {
     let local_tree = repo.find_commit(local.id())?.tree()?;
     let remote_tree = repo.find_commit(remote.id())?.tree()?;
-    let ancestor = repo
-        .find_commit(repo.merge_base(local.id(), remote.id())?)?
-        .tree()?;
-    let mut idx = repo.merge_trees(&ancestor, &local_tree, &remote_tree, None)?;
+    
+    // Handle case where no merge base exists (e.g., force push with different histories)
+    let mut idx = match repo.merge_base(local.id(), remote.id()) {
+        Ok(merge_base_oid) => {
+            // Normal merge with common ancestor
+            let ancestor = repo.find_commit(merge_base_oid)?.tree()?;
+            repo.merge_trees(&ancestor, &local_tree, &remote_tree, None)?
+        }
+        Err(_) => {
+            // No common ancestor - treat as force push, update HEAD directly to remote
+            tracing::warn!("No merge base found, treating as force push and then set head to remote commit directly");
+            // Set HEAD to remote commit directly (force push behavior)
+            repo.set_head_detached(remote.id())?;
+            repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))?;
+            return Ok(()); // Skip merge commit creation for force push
+        }
+    };
 
     if idx.has_conflicts() {
         println!("Merge conflicts detected...");
@@ -374,7 +391,13 @@ fn normal_merge(
     let result_tree = repo.find_tree(idx.write_tree_to(repo)?)?;
     // now create the merge commit
     let msg = format!("Merge: {} into {}", remote.id(), local.id());
-    let sig = repo.signature()?;
+    let sig = match repo.signature() {
+        Ok(sig) => sig,
+        Err(_) => {
+            // Fallback for bare repositories without git config
+            git2::Signature::now("PWS Git Server", "git@pemasak-infra.com")?
+        }
+    };
     let local_commit = repo.find_commit(local.id())?;
     let remote_commit = repo.find_commit(remote.id())?;
     // Do our merge commit and set current branch head to that commit.

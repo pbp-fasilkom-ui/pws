@@ -22,8 +22,6 @@ function ProjectDashboardTerminal() {
     }
   }, [lastMessage]);
 
-  console.log(messageHistory)
-
   return (
     <div className="space-y-4 w-full">
       <div className="text-sm space-y-1">

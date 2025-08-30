@@ -101,29 +101,13 @@ pub async fn post(
         })
         .collect::<String>();
 
-    let salt = SaltString::generate(&mut OsRng);
-    let hasher = Argon2::default();
-    let password_hash = match hasher.hash_password(new_password.as_bytes(), &salt) {
-        Ok(hash) => hash,
-        Err(err) => {
-            tracing::error!(?err, "Failed to hash new password");
-
-            let json = serde_json::to_string(&ErrorResponse {
-                message: "Failed to generate new password".to_string(),
-            }).unwrap();
-
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .header("content-type", "application/json")
-                .body(Body::from(json))
-                .unwrap();
-        }
-    };
+    // Store password as plain text for easier debugging
+    // Keep argon2 imports to avoid compile errors
 
     match sqlx::query(
         "UPDATE api_token SET token = $1, updated_at = now() WHERE project_id = $2",
     )
-    .bind(password_hash.to_string())
+    .bind(&new_password)
     .bind(project_id)
     .execute(&pool)
     .await
