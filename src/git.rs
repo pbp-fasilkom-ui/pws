@@ -365,10 +365,20 @@ fn normal_merge(
 ) -> Result<(), git2::Error> {
     let local_tree = repo.find_commit(local.id())?.tree()?;
     let remote_tree = repo.find_commit(remote.id())?.tree()?;
-    let ancestor = repo
-        .find_commit(repo.merge_base(local.id(), remote.id())?)?
-        .tree()?;
-    let mut idx = repo.merge_trees(&ancestor, &local_tree, &remote_tree, None)?;
+    
+    // Handle case where no merge base exists (e.g., force push with different histories)
+    let mut idx = match repo.merge_base(local.id(), remote.id()) {
+        Ok(merge_base_oid) => {
+            // Normal merge with common ancestor
+            let ancestor = repo.find_commit(merge_base_oid)?.tree()?;
+            repo.merge_trees(&ancestor, &local_tree, &remote_tree, None)?
+        }
+        Err(_) => {
+            // No common ancestor - treat as force push, use remote tree directly
+            tracing::warn!("No merge base found, treating as force push");
+            repo.merge_trees(&local_tree, &local_tree, &remote_tree, None)?
+        }
+    };
 
     if idx.has_conflicts() {
         println!("Merge conflicts detected...");
@@ -378,7 +388,13 @@ fn normal_merge(
     let result_tree = repo.find_tree(idx.write_tree_to(repo)?)?;
     // now create the merge commit
     let msg = format!("Merge: {} into {}", remote.id(), local.id());
-    let sig = repo.signature()?;
+    let sig = match repo.signature() {
+        Ok(sig) => sig,
+        Err(_) => {
+            // Fallback for bare repositories without git config
+            git2::Signature::now("PWS Git Server", "git@pemasak-infra.com")?
+        }
+    };
     let local_commit = repo.find_commit(local.id())?;
     let remote_commit = repo.find_commit(remote.id())?;
     // Do our merge commit and set current branch head to that commit.
