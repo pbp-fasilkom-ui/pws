@@ -19,6 +19,7 @@ mod generate_status_badge;
 mod get_project_status;
 mod get_git_credentials;
 mod regenerate_git_password;
+mod view_project_tree;
 
 pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {
     Router::new()
@@ -34,6 +35,7 @@ pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Bo
         .route_with_tsr("/api/project/:owner/:project/terminal/ws", get(web_terminal::ws))
         .route_with_tsr("/api/project/:owner/:project/git-credentials", get(get_git_credentials::get))
         .route_with_tsr("/api/project/:owner/:project/regenerate-git-password", post(regenerate_git_password::post))
+        .route_with_tsr("/api/project/:owner/:project/tree", get(view_project_tree::get))
         .route_layer(middleware::from_fn(auth))
         .route_with_tsr("/api/project/:owner/:project/badge/status", get(generate_status_badge::get))
         .route_with_tsr("/api/project/:owner/:project/status", get(get_project_status::get))
