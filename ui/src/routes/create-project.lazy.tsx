@@ -16,14 +16,33 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useState } from 'react';
 import { useSWRConfig } from 'swr';
 import Spinner from '@/components/ui/spinner';
+import useSWR from 'swr';
 
 export const Route = createLazyFileRoute('/create-project')({
   component: NewProject,
 })
 
+const apiFetcher = (input: URL | RequestInfo, options?: RequestInit) => {
+  return fetch(
+    input,
+    {
+      ...options,
+      redirect: "follow",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json"
+      },
+    }
+  ).then(res => res.json())
+}
+
 function NewProject() {
   const auth = useAuth()
   const { mutate } = useSWRConfig()
+  
+  const { data: projects } = useSWR(`${import.meta.env.VITE_API_URL}/dashboard/project/`, apiFetcher)
+  const projectCount = projects?.data?.length || 0
+  const isAtLimit = projectCount >= 3
 
   const {
     formState: { isSubmitting },
@@ -77,6 +96,30 @@ function NewProject() {
         </div>
       </div>
       <div className="h-full mt-24 p-8 pb-32 space-y-8 overflow-y-auto">
+        {isAtLimit && !response && (
+          <Alert variant="default" className="border-red-400 text-red-400">
+            <ExclamationTriangleIcon className="h-5 w-5 mt-0.5 !text-red-400" />
+            <AlertTitle className="text-lg font-semibold">
+              Project Limit Reached
+            </AlertTitle>
+            <AlertDescription>
+              You have reached the maximum limit of 3 projects per user. Please delete an existing project to create a new one.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {projectCount > 0 && projectCount < 3 && !response && (
+          <Alert variant="default" className="border-yellow-400 text-yellow-400">
+            <ExclamationTriangleIcon className="h-5 w-5 mt-0.5 !text-yellow-400" />
+            <AlertTitle className="text-lg font-semibold">
+              Project Count: {projectCount} / 3
+            </AlertTitle>
+            <AlertDescription>
+              You can create {3 - projectCount} more project{3 - projectCount !== 1 ? 's' : ''}.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {error && (
           <Alert variant="default" className="border-red-400 text-red-400">
             <ExclamationTriangleIcon className="h-5 w-5 mt-0.5 !text-red-400" />
@@ -100,8 +143,8 @@ function NewProject() {
                   control={control}
                   defaultValue={auth.user.username}
                   render={({ field }) => {
-                    return <Select onValueChange={field.onChange} {...field}>
-                      <SelectTrigger className="bg-slate-900 border-slate-600 bg-opacity-90">
+                    return <Select onValueChange={field.onChange} {...field} disabled={isAtLimit}>
+                      <SelectTrigger className={`bg-slate-900 border-slate-600 bg-opacity-90 ${isAtLimit ? 'opacity-50' : ''}`}>
                         <SelectValue placeholder="Owner" />
                       </SelectTrigger>
                       <SelectContent className="border-slate-600">
@@ -113,12 +156,20 @@ function NewProject() {
               </div>
               <div className="space-y-2">
                 <label className="text-slate-300">Project Name</label>
-                <Input className="bg-slate-900 border-slate-600 bg-opacity-90 min-w-96" {...register("project")} />
+                <Input 
+                  className={`bg-slate-900 border-slate-600 bg-opacity-90 min-w-96 ${isAtLimit ? 'opacity-50' : ''}`} 
+                  {...register("project")} 
+                  disabled={isAtLimit}
+                />
               </div>
             </div>
-            {!isSubmitting ? (
+            {!isSubmitting && !isAtLimit ? (
               <Button size="lg" className="text-white min-w-64">
                 Create New Project
+              </Button>
+            ) : isAtLimit ? (
+              <Button disabled size="lg" className="text-white min-w-64 opacity-50">
+                Project Limit Reached
               </Button>
             ) : (
               <Button disabled size="lg" className="text-white min-w-64">

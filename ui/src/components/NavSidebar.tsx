@@ -97,10 +97,25 @@ export default function NavSidebar({ className }: NavSidebarProps): ReactElement
         )}
       </div>
       <hr className="border-slate-600" />
-      <div className="flex flex-col items-center justify-center px-4 py-4">
+      <div className="flex flex-col items-center justify-center px-4 py-4 space-y-3">
+        {projects?.data && projects.data.length > 0 && (
+          <div className="w-full text-center text-xs text-slate-400">
+            <span className="bg-slate-800 px-2 py-1 rounded">
+              {projects.data.length} / 3 projects
+            </span>
+          </div>
+        )}
         <Link href="/create-project" to="/create-project" className="w-full">
-          <Button variant="outline" size="lg" className="w-full space-x-4 border-primary text-primary hover:bg-primary">
-            <PlusIcon className="mr-2 h-4 w-4" /> Create New Project
+          <Button 
+            variant="outline" 
+            size="lg" 
+            className={`w-full space-x-4 border-primary text-primary hover:bg-primary ${
+              projects?.data?.length >= 3 ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
+            disabled={projects?.data?.length >= 3}
+          >
+            <PlusIcon className="mr-2 h-4 w-4" /> 
+            {projects?.data?.length >= 3 ? 'Project Limit Reached' : 'Create New Project'}
           </Button>
         </Link>
       </div>

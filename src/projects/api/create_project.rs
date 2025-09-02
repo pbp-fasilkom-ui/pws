@@ -69,6 +69,9 @@ pub async fn post(
         }
     };
 
+    // Get current user early since we'll need it for project limit check
+    let current_user = auth.current_user.unwrap();
+
     let path = match project.ends_with(".git") {
         true => format!("{base}/{owner}/{project}"),
         false => format!("{base}/{owner}/{project}.git"),
@@ -106,6 +109,46 @@ pub async fn post(
                 .unwrap();
         }
     };
+
+    // check if user has reached the 3 project limit
+    match sqlx::query_as::<_, (i32,)>(
+        r#"SELECT COUNT(*)::int as count
+           FROM projects
+           JOIN project_owners ON projects.owner_id = project_owners.id
+           JOIN users_owners ON project_owners.id = users_owners.owner_id
+           JOIN users ON users_owners.user_id = users.id
+           WHERE users.id = $1 AND projects.deleted_at IS NULL
+        "#,
+    )
+    .bind(current_user.id)
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(record) => {
+            let project_count = record.0;
+            if project_count >= 3 {
+                let json = serde_json::to_string(&ErrorResponse {
+                    message: "Project limit reached. You can only have a maximum of 3 projects per user.".to_string(),
+                }).unwrap();
+
+                return Response::builder()
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Body::from(json))
+                    .unwrap();
+            }
+        }
+        Err(err) => {
+            tracing::error!(?err, "Can't count user projects: Failed to query database");
+            let json = serde_json::to_string(&ErrorResponse {
+                message: format!("Failed to query database {}", err.to_string())
+            }).unwrap();
+
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::from(json))
+                .unwrap();
+        }
+    }
 
     // check if project already exist
     match sqlx::query!(
@@ -259,7 +302,7 @@ pub async fn post(
         false => "http",
     };
 
-    let username = auth.current_user.unwrap().username;
+    let username = current_user.username;
 
     let json = serde_json::to_string(
         &CreateProjectResponse {
