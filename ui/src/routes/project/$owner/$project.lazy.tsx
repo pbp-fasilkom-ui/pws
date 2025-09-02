@@ -29,6 +29,7 @@ function ProjectDashboard() {
     const domain = apiUrl.hostname
 
     const { data: builds, isLoading } = useSWR(`${import.meta.env.VITE_API_URL}/project/${owner}/${project}/builds/`, apiFetcher)
+    const hasSuccessfulBuild = builds?.data?.some((b: any) => b.status === "SUCCESSFUL");
 
     return (
         <div className="w-full relative min-h-screen">
@@ -79,38 +80,42 @@ function ProjectDashboard() {
                                 </svg>
                                 Builds
                             </Link>
-                            <Link
-                                to="/project/$owner/$project/terminal"
-                                params={{ owner, project }}
-                                className="flex px-4 py-2 rounded-lg items-center hover:bg-slate-900 transition-all"
-                                activeProps={{
-                                    className: "bg-slate-900"
-                                }}
-                            >
-                                <svg className="mr-1.5" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <path d="M7 11L9 9L7 7" stroke="#F8FAFC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                                    <path d="M11 13H15" stroke="#F8FAFC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                                    <path d="M19 3H5C3.89543 3 3 3.89543 3 5V19C3 20.1046 3.89543 21 5 21H19C20.1046 21 21 20.1046 21 19V5C21 3.89543 20.1046 3 19 3Z" stroke="#F8FAFC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-                                </svg>
-                                Terminal
-                            </Link>
-                            <Link
-                                to="/project/$owner/$project/logs"
-                                params={{ owner, project }}
-                                className="flex px-4 py-2 rounded-lg items-center hover:bg-slate-900 transition-all"
-                                activeProps={{
-                                    className: "bg-slate-900"
-                                }}
-                            >
-                                <svg className="mr-1.5" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <path d="M19.5 3.5L18 2L16.5 3.5L15 2L13.5 3.5L12 2L10.5 3.5L9 2L7.5 3.5L6 2V16H3V19C3 20.66 4.34 22 6 22H18C19.66 22 21 20.66 21 19V2L19.5 3.5ZM15 20H6C5.45 20 5 19.55 5 19V18H15V20ZM19 19C19 19.55 18.55 20 18 20C17.45 20 17 19.55 17 19V16H8V5H19V19Z" fill="white" />
-                                    <path d="M15 7H9V9H15V7Z" fill="white" />
-                                    <path d="M18 7H16V9H18V7Z" fill="white" />
-                                    <path d="M15 10H9V12H15V10Z" fill="white" />
-                                    <path d="M18 10H16V12H18V10Z" fill="white" />
-                                </svg>
-                                Logs
-                            </Link>
+                            {hasSuccessfulBuild && (
+                            <>
+                                <Link
+                                    to="/project/$owner/$project/terminal"
+                                    params={{ owner, project }}
+                                    className="flex px-4 py-2 rounded-lg items-center hover:bg-slate-900 transition-all"
+                                    activeProps={{
+                                        className: "bg-slate-900"
+                                    }}
+                                >
+                                    <svg className="mr-1.5" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M7 11L9 9L7 7" stroke="#F8FAFC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                                        <path d="M11 13H15" stroke="#F8FAFC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                                        <path d="M19 3H5C3.89543 3 3 3.89543 3 5V19C3 20.1046 3.89543 21 5 21H19C20.1046 21 21 20.1046 21 19V5C21 3.89543 20.1046 3 19 3Z" stroke="#F8FAFC" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                                    </svg>
+                                    Terminal
+                                </Link>
+                                <Link
+                                    to="/project/$owner/$project/logs"
+                                    params={{ owner, project }}
+                                    className="flex px-4 py-2 rounded-lg items-center hover:bg-slate-900 transition-all"
+                                    activeProps={{
+                                        className: "bg-slate-900"
+                                    }}
+                                >
+                                    <svg className="mr-1.5" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M19.5 3.5L18 2L16.5 3.5L15 2L13.5 3.5L12 2L10.5 3.5L9 2L7.5 3.5L6 2V16H3V19C3 20.66 4.34 22 6 22H18C19.66 22 21 20.66 21 19V2L19.5 3.5ZM15 20H6C5.45 20 5 19.55 5 19V18H15V20ZM19 19C19 19.55 18.55 20 18 20C17.45 20 17 19.55 17 19V16H8V5H19V19Z" fill="white" />
+                                        <path d="M15 7H9V9H15V7Z" fill="white" />
+                                        <path d="M18 7H16V9H18V7Z" fill="white" />
+                                        <path d="M15 10H9V12H15V10Z" fill="white" />
+                                        <path d="M18 10H16V12H18V10Z" fill="white" />
+                                    </svg>
+                                    Logs
+                                </Link>
+                            </>
+                            )}
                             <Link
                                 to="/project/$owner/$project/env"
                                 params={{ owner, project }}
