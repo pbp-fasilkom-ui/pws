@@ -37,6 +37,7 @@ function ProjectDashboard() {
   const hasSuccessfulBuild = builds?.data?.some(
     (b: any) => b.status === "SUCCESSFUL",
   );
+  const hasAnyBuild = builds?.data?.length > 0;
 
   return (
     <div className="w-full relative min-h-screen">
@@ -147,37 +148,6 @@ function ProjectDashboard() {
                     Terminal
                   </Link>
                   <Link
-                    to="/project/$owner/$project/code"
-                    params={{ owner, project }}
-                    className="flex px-4 py-2 rounded-lg items-center hover:bg-slate-900 transition-all"
-                    activeProps={{ className: "bg-slate-900" }}
-                  >
-                    <svg
-                      className="mr-1.5"
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                    >
-                      <path
-                        d="M8 6l-4 6 4 6"
-                        stroke="#F8FAFC"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                      <path
-                        d="M16 6l4 6-4 6"
-                        stroke="#F8FAFC"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                    Code
-                  </Link>
-
-                  <Link
                     to="/project/$owner/$project/logs"
                     params={{ owner, project }}
                     className="flex px-4 py-2 rounded-lg items-center hover:bg-slate-900 transition-all"
@@ -205,6 +175,38 @@ function ProjectDashboard() {
                     Logs
                   </Link>
                 </>
+              )}
+              {hasAnyBuild && (
+                <Link
+                  to="/project/$owner/$project/code"
+                  params={{ owner, project }}
+                  className="flex px-4 py-2 rounded-lg items-center hover:bg-slate-900 transition-all"
+                  activeProps={{ className: "bg-slate-900" }}
+                >
+                  <svg
+                    className="mr-1.5"
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                  >
+                    <path
+                      d="M8 6l-4 6 4 6"
+                      stroke="#F8FAFC"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <path
+                      d="M16 6l4 6-4 6"
+                      stroke="#F8FAFC"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  Code
+                </Link>
               )}
               <Link
                 to="/project/$owner/$project/env"

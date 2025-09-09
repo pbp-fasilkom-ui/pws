@@ -447,27 +447,11 @@ pub async fn receive_pack_rpc(
     let container_src = format!("{path}/master");
     let container_name = format!("{owner}-{}", repo.trim_end_matches(".git")).replace('.', "-");
 
-    // get first file in branch folder
-    let branch = match std::fs::read_dir(&head_dir) {
-        Ok(mut dir) => dir.find_map(|entry| {
-            entry.ok().and_then(|e| {
-                e.file_name().into_string().ok()
-                // .and_then(|s| s.strip_suffix(".lock").map(|s| s.to_string()))
-            })
-        }),
-        Err(_) => None,
-    };
-
-    let branch = match branch {
-        Some(branch) => branch,
-        None => {
-            tracing::error!("no branch found");
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::empty())
-                .unwrap();
-        }
-    };
+    // FIXED: Use hardcoded master instead of filesystem scan to avoid alphabetical confusion
+    // Previous issue: filesystem scan picked "main" over "master" alphabetically
+    // causing docker build to use outdated code while UI showed latest
+    let branch = "master".to_string();
+    tracing::info!("Using hardcoded master branch to ensure consistency with bare repo HEAD");
     tracing::info!(branch, "git branch name");
 
     // TODO: clean up this mess
