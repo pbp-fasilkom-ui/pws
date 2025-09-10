@@ -329,89 +329,9 @@ pub async fn get_file_text(base: &str, owner: &str, repo: &str, file: &str) -> R
     let mut contents = String::new();
     file.read_to_string(&mut contents).unwrap();
     Response::builder()
-        .no_cache()
         .header("Content-Type", "text/plain")
         .body(Body::from(contents))
         .unwrap()
-}
-
-fn fast_forward(
-    repo: &Repository,
-    lb: &mut git2::Reference,
-    rc: &git2::AnnotatedCommit,
-) -> Result<(), git2::Error> {
-    let name = match lb.name() {
-        Some(s) => s.to_string(),
-        None => String::from_utf8_lossy(lb.name_bytes()).to_string(),
-    };
-    let msg = format!("Fast-Forward: Setting {} to id: {}", name, rc.id());
-    println!("{}", msg);
-    lb.set_target(rc.id(), &msg)?;
-    repo.set_head(&name)?;
-    repo.checkout_head(Some(
-        git2::build::CheckoutBuilder::default()
-            // For some reason the force is required to make the working directory actually get updated
-            // I suspect we should be adding some logic to handle dirty working directory states
-            // but this is just an example so maybe not.
-            .force(),
-    ))?;
-    Ok(())
-}
-
-fn normal_merge(
-    repo: &Repository,
-    local: &git2::AnnotatedCommit,
-    remote: &git2::AnnotatedCommit,
-) -> Result<(), git2::Error> {
-    let local_tree = repo.find_commit(local.id())?.tree()?;
-    let remote_tree = repo.find_commit(remote.id())?.tree()?;
-    
-    // Handle case where no merge base exists (e.g., force push with different histories)
-    let mut idx = match repo.merge_base(local.id(), remote.id()) {
-        Ok(merge_base_oid) => {
-            // Normal merge with common ancestor
-            let ancestor = repo.find_commit(merge_base_oid)?.tree()?;
-            repo.merge_trees(&ancestor, &local_tree, &remote_tree, None)?
-        }
-        Err(_) => {
-            // No common ancestor - treat as force push, update HEAD directly to remote
-            tracing::warn!("No merge base found, treating as force push and then set head to remote commit directly");
-            // Set HEAD to remote commit directly (force push behavior)
-            repo.set_head_detached(remote.id())?;
-            repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))?;
-            return Ok(()); // Skip merge commit creation for force push
-        }
-    };
-
-    if idx.has_conflicts() {
-        println!("Merge conflicts detected...");
-        repo.checkout_index(Some(&mut idx), None)?;
-        return Ok(());
-    }
-    let result_tree = repo.find_tree(idx.write_tree_to(repo)?)?;
-    // now create the merge commit
-    let msg = format!("Merge: {} into {}", remote.id(), local.id());
-    let sig = match repo.signature() {
-        Ok(sig) => sig,
-        Err(_) => {
-            // Fallback for bare repositories without git config
-            git2::Signature::now("PWS Git Server", "git@pemasak-infra.com")?
-        }
-    };
-    let local_commit = repo.find_commit(local.id())?;
-    let remote_commit = repo.find_commit(remote.id())?;
-    // Do our merge commit and set current branch head to that commit.
-    let _merge_commit = repo.commit(
-        Some("HEAD"),
-        &sig,
-        &sig,
-        &msg,
-        &result_tree,
-        &[&local_commit, &remote_commit],
-    )?;
-    // Set working tree to match head.
-    repo.checkout_head(None)?;
-    Ok(())
 }
 
 pub async fn receive_pack_rpc(
@@ -444,83 +364,81 @@ pub async fn receive_pack_rpc(
         return res;
     }
 
-    let container_src = format!("{path}/master");
+    let container_src = format!("{path}/clone");
     let container_name = format!("{owner}-{}", repo.trim_end_matches(".git")).replace('.', "-");
 
-    // FIXED: Use hardcoded master instead of filesystem scan to avoid alphabetical confusion
-    // Previous issue: filesystem scan picked "main" over "master" alphabetically
-    // causing docker build to use outdated code while UI showed latest
-    let branch = "master".to_string();
-    tracing::info!("Using hardcoded master branch to ensure consistency with bare repo HEAD");
-    tracing::info!(branch, "git branch name");
-
-    // TODO: clean up this mess
-    if let Err(_e) = git2::Repository::clone(&path, &container_src) {
-        tracing::info!("repo already cloned");
-        // try to pull
-        let repo = git2::Repository::open(&container_src).unwrap();
-        let mut fo = git2::FetchOptions::new();
-        fo.download_tags(git2::AutotagOption::All);
-
-        let mut remote = repo.find_remote("origin").unwrap();
-        remote.fetch(&[&branch], Some(&mut fo), None).unwrap();
-
-        let fetch_head = repo.find_reference("FETCH_HEAD").unwrap();
-        let fetch_commit = repo.reference_to_annotated_commit(&fetch_head).unwrap();
-
-        let analysis = repo.merge_analysis(&[&fetch_commit]).unwrap();
-
-        if analysis.0.is_fast_forward() {
-            tracing::info!("fast forward");
-            let refname = format!("refs/heads/{branch}");
-            match repo.find_reference(&refname) {
-                Ok(mut r) => {
-                    fast_forward(&repo, &mut r, &fetch_commit).unwrap();
-                }
-                Err(_) => {
-                    // The branch doesn't exist so just set the reference to the
-                    // commit directly. Usually this is because you are pulling
-                    // into an empty repository.
-                    repo.reference(
-                        &refname,
-                        fetch_commit.id(),
-                        true,
-                        &format!("Setting {} to {}", fetch_commit.id(), &branch),
-                    )
-                    .unwrap();
-                    repo.set_head(&refname).unwrap();
-                    repo.checkout_head(Some(
-                        git2::build::CheckoutBuilder::default()
-                            .allow_conflicts(true)
-                            .conflict_style_merge(true)
-                            .force(),
-                    ))
-                    .unwrap();
-                }
-            };
-        } else {
-            tracing::info!("merge");
-            let head_commit = repo
-                .reference_to_annotated_commit(&repo.head().unwrap())
-                .unwrap();
-            normal_merge(&repo, &head_commit, &fetch_commit).unwrap();
-        };
-
-        if false {
-            // try to delete the folder and clone again
-            // tracing::error!("can't fetch repo -> {:#?}", e);
-            std::fs::remove_dir_all(&container_src).unwrap();
-
-            if let Err(e) = git2::Repository::clone(&path, &container_src) {
-                // if this doesnt work then something is wrong
-                println!("error -> {:#?}", e);
-                return Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(Body::empty())
-                    .unwrap();
-            };
-        };
+    // FIXED: Get HEAD commit directly from bare repo to ensure consistency 
+    // This resolves the issue where copy directory was out of sync with tree view
+    let bare_repo_path = if repo.ends_with(".git") {
+        format!("{base}/{owner}/{repo}")
+    } else {
+        format!("{base}/{owner}/{repo}.git")
     };
+    
+    let head_commit_id = match git2::Repository::open_bare(&bare_repo_path) {
+        Ok(bare_repo) => {
+            match bare_repo.revparse_single("HEAD") {
+                Ok(obj) => {
+                    let commit_id = obj.id();
+                    tracing::info!("Got HEAD commit from bare repo: {}", commit_id);
+                    commit_id
+                },
+                Err(e) => {
+                    tracing::error!("Failed to resolve HEAD in bare repo: {}", e);
+                    return Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(Body::empty())
+                        .unwrap();
+                }
+            }
+        },
+        Err(e) => {
+            tracing::error!("Failed to open bare repo: {}", e);
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::empty())
+                .unwrap();
+        }
+    };
+
+    // Always fresh clone to guarantee up-to-date state
+    // Delete existing working directory if it exists
+    if std::path::Path::new(&container_src).exists() {
+        tracing::info!("Removing existing working directory: {}", container_src);
+        if let Err(e) = std::fs::remove_dir_all(&container_src) {
+            tracing::error!("Failed to remove existing directory: {}", e);
+        }
+    }
+    
+    // Fresh clone from bare repo - always up-to-date
+    tracing::info!("Creating fresh clone from bare repo to: {}", container_src);
+    match git2::Repository::clone(&path, &container_src) {
+        Ok(cloned_repo) => {
+            tracing::info!("Fresh clone completed, now setting to exact HEAD commit");
+            
+            // Set to exact same commit as HEAD in bare repo (matching tree view)
+            if let Err(e) = cloned_repo.set_head_detached(head_commit_id) {
+                tracing::error!("Failed to set cloned repo HEAD: {}", e);
+            } else {
+                // Force checkout to make working directory match
+                if let Err(e) = cloned_repo.checkout_head(Some(
+                    git2::build::CheckoutBuilder::default().force()
+                )) {
+                    tracing::error!("Failed to checkout cloned repo HEAD: {}", e);
+                } else {
+                    tracing::info!("Successfully set working directory to commit: {}", head_commit_id);
+                }
+            }
+        },
+        Err(e) => {
+            tracing::error!("Fresh clone failed: {}", e);
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Body::empty())
+                .unwrap();
+        }
+    }
+
 
     tokio::spawn(async move {
         build_channel
