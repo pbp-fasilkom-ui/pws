@@ -22,6 +22,17 @@ interface RegeneratePasswordResponse {
   message: string
 }
 
+interface ProjectShare {
+  user_id: string
+  username: string
+  name: string
+  created_at: string
+}
+
+interface ProjectSharesResponse {
+  shares: ProjectShare[]
+}
+
 const apiFetcher = (input: URL | RequestInfo, options?: RequestInit) => {
   return fetch(
     input,
@@ -44,10 +55,96 @@ function ProjectDashboardSettings() {
   const [isLoading, setIsLoading] = useState(true)
   const [regeneratedPassword, setRegeneratedPassword] = useState<string | null>(null)
   const [isRegenerating, setIsRegenerating] = useState(false)
+  const [projectMembers, setProjectMembers] = useState<ProjectShare[]>([])
+  const [isLoadingMembers, setIsLoadingMembers] = useState(false)
+  const [newMemberUsername, setNewMemberUsername] = useState("")
+  const [isAddingMember, setIsAddingMember] = useState(false)
 
   useEffect(() => {
     fetchGitCredentials()
+    fetchProjectMembers()
   }, [owner, project])
+
+  // Fix fetchProjectMembers function (around line 68)
+async function fetchProjectMembers() {
+  try {
+    setIsLoadingMembers(true)
+    const response = await apiFetcher(`${import.meta.env.VITE_API_URL}/owner/${owner}/${project}/members`)
+    if (response.ok) {
+      const data: ProjectSharesResponse = await response.json()
+      setProjectMembers(data.shares)
+    } else {
+      console.error('Failed to fetch project members')
+      toast.error('Failed to fetch project members')
+    }
+  } catch (error) {
+    console.error('Error fetching project members:', error)
+    toast.error('Error fetching project members')
+  } finally {
+    setIsLoadingMembers(false)
+  }
+}
+  
+async function handleAddMember() {
+  if (!newMemberUsername.trim()) return
+  
+  try {
+    setIsAddingMember(true)
+    
+    const response = await fetch(`${import.meta.env.VITE_API_URL}/owner/${owner}/${project}/invite`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        username: newMemberUsername.trim()
+      })
+    })
+    
+    if (response.ok) {
+      toast.success('Member added successfully', {
+        position: "bottom-right",
+        style: {
+          backgroundColor: "#020817",
+          color: "white"
+        }
+      })
+      setNewMemberUsername("")
+      fetchProjectMembers()
+    } else {
+      const error = await response.text()
+      toast.error(error || 'Failed to add member')
+    }
+  } catch (error) {
+    toast.error('Error adding member')
+  } finally {
+    setIsAddingMember(false)
+  }
+}
+  
+async function handleRemoveMember(userId: string) {
+  try {
+    const response = await apiFetcher(`${import.meta.env.VITE_API_URL}/owner/${owner}/${project}/remove/${userId}`, {
+      method: "POST"
+    })
+    
+    if (response.ok) {
+      toast.success('Member removed successfully', {
+        position: "bottom-right",
+        style: {
+          backgroundColor: "#020817",
+          color: "white"
+        }
+      })
+      fetchProjectMembers()
+    } else {
+      toast.error('Failed to remove member')
+    }
+  } catch (error) {
+    toast.error('Error removing member')
+  }
+}
 
   async function fetchGitCredentials() {
     try {
@@ -294,7 +391,66 @@ function ProjectDashboardSettings() {
             </div>
           )}
         </div>
+                {/* Project Members Section */}
+                <div>
+          <h1 className="font-medium">Project Members</h1>
+          <p className="text-sm">Manage who has access to this project</p>
+          
+          {/* Add Member */}
+          <div className="mt-4 p-4 bg-slate-800 rounded-lg space-y-3">
+            <h3 className="text-sm font-medium text-slate-300">Add New Member</h3>
+            <div className="flex space-x-2">
+              <input
+                type="text"
+                placeholder="Enter username"
+                value={newMemberUsername}
+                onChange={(e) => setNewMemberUsername(e.target.value)}
+                className="flex-1 px-3 py-2 bg-slate-900 border border-slate-600 rounded text-sm text-white placeholder-slate-400"
+                onKeyPress={(e) => e.key === 'Enter' && handleAddMember()}
+              />
+              <Button 
+                onClick={handleAddMember}
+                disabled={isAddingMember || !newMemberUsername.trim()}
+                className="px-4 py-2 text-sm"
+              >
+                {isAddingMember ? "Adding..." : "Add"}
+              </Button>
+            </div>
+          </div>
 
+          {/* Members List */}
+          <div className="mt-4 p-4 bg-slate-800 rounded-lg">
+            <h3 className="text-sm font-medium text-slate-300 mb-3">Current Members</h3>
+            
+            {isLoadingMembers ? (
+              <p className="text-sm text-slate-400">Loading members...</p>
+            ) : projectMembers.length > 0 ? (
+              <div className="space-y-2">
+                {projectMembers.map((member) => (
+                  <div key={member.user_id} className="flex items-center justify-between p-2 bg-slate-900 rounded">
+                    <div>
+                      <span className="text-sm font-medium text-white">{member.name}</span>
+                      <span className="ml-2 text-xs text-slate-400">@{member.username}</span>
+                      <span className="ml-2 text-xs text-slate-500">
+                        Added {new Date(member.created_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleRemoveMember(member.user_id)}
+                      className="h-6 px-2 text-xs text-red-400 border-red-400 hover:bg-red-400 hover:text-white"
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400">No members found</p>
+            )}
+          </div>
+        </div>
         <div>
           <h1 className="font-medium">Project Controls</h1>
           <p className="text-sm">Actions that you can take in this project</p>

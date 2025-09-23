@@ -37,15 +37,16 @@ pub async fn get(
             .unwrap();
     };
 
-    // check if project exist
+    // check if project exist and user has access (owner or shared)
     let row = sqlx::query(
         r#"SELECT projects.id, projects.name AS project, project_owners.name AS owner
            FROM projects
            JOIN project_owners ON projects.owner_id = project_owners.id
-           JOIN users_owners ON project_owners.id = users_owners.owner_id
+           LEFT JOIN users_owners ON project_owners.id = users_owners.owner_id
+           LEFT JOIN project_shares ON projects.id = project_shares.project_id
            WHERE projects.name = $1
              AND project_owners.name = $2
-             AND users_owners.user_id = $3
+             AND (users_owners.user_id = $3 OR project_shares.user_id = $3)
         "#,
     )
     .bind(&project)

@@ -20,10 +20,12 @@ mod get_project_status;
 mod get_git_credentials;
 mod regenerate_git_password;
 mod view_project_tree;
+mod check_project_access;
 
 pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {
     Router::new()
         .route_with_tsr("/api/project/new", post(create_project::post))
+        .route_with_tsr("/api/project/:owner/:project/access", get(check_project_access::get))
         .route_with_tsr("/api/project/:owner/:project/builds", get(project_dashboard::get))
         .route_with_tsr("/api/project/:owner/:project/logs", get(view_container_log::get))
         .route_with_tsr("/api/project/:owner/:project/env", get(view_project_environ::get).post(update_project_environ::post))
