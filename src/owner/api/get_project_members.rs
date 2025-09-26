@@ -1,16 +1,23 @@
 use axum::extract::{State, Path};
 use axum::response::Response;
-use axum::Json;
 use hyper::{Body, StatusCode};
-use serde::{Serialize, Deserialize};
+use serde::Serialize;
 use uuid::Uuid;
 
 use crate::{auth::Auth, startup::AppState};
 use sqlx::Row;
 
-#[derive(Deserialize, Debug)]
-pub struct ShareRequest {
-    pub username: String,
+#[derive(Serialize, Debug)]
+struct ProjectShare {
+    user_id: Uuid,
+    username: String,
+    name: String,
+    created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, Debug)]
+struct ProjectSharesResponse {
+    shares: Vec<ProjectShare>,
 }
 
 #[derive(Serialize, Debug)]
@@ -19,13 +26,12 @@ struct ErrorResponse {
 }
 
 #[tracing::instrument(skip(auth, pool))]
-pub async fn post(
+pub async fn get(
     auth: Auth,
     State(AppState { pool, .. }): State<AppState>,
     Path((owner, project)): Path<(String, String)>,
-    Json(req): Json<ShareRequest>,
 ) -> Response<Body> {
-    let Some(user) = auth.current_user else {
+    let Some(_user) = auth.current_user else {
         let json = serde_json::to_string(&ErrorResponse {
             message: "Unauthorized".to_string(),
         }).unwrap();
@@ -61,42 +67,35 @@ pub async fn post(
 
     let project_id: Uuid = record.get("id");
 
-    // Get target user
-    let target_user = sqlx::query(
-        r#"SELECT id FROM users WHERE username = $1"#,
-    )
-    .bind(&req.username)
-    .fetch_optional(&pool)
-    .await
-    .unwrap();
-
-    let Some(user_record) = target_user else {
-        let json = serde_json::to_string(&ErrorResponse {
-            message: "User not found".to_string(),
-        }).unwrap();
-        return Response::builder()
-            .status(StatusCode::BAD_REQUEST)
-            .header(axum::http::header::CONTENT_TYPE, "application/json")
-            .body(Body::from(json))
-            .unwrap();
-    };
-
-    let target_user_id: Uuid = user_record.get("id");
-
-    // Share project
-    sqlx::query(
-        r#"INSERT INTO project_shares (project_id, user_id) VALUES ($1, $2)
-           ON CONFLICT DO NOTHING"#,
+    // Get project shares
+    let shares_result = sqlx::query(
+        r#"SELECT u.id, u.username, u.name, ps.created_at
+           FROM users u
+           JOIN project_shares ps ON u.id = ps.user_id
+           WHERE ps.project_id = $1
+           ORDER BY ps.created_at ASC
+        "#,
     )
     .bind(project_id)
-    .bind(target_user_id)
-    .execute(&pool)
+    .fetch_all(&pool)
     .await
     .unwrap();
+
+    let shares: Vec<ProjectShare> = shares_result
+        .into_iter()
+        .map(|row| ProjectShare {
+            user_id: row.get::<Uuid, _>("id"),
+            username: row.get::<String, _>("username"),
+            name: row.get::<String, _>("name"),
+            created_at: row.get::<chrono::DateTime<chrono::Utc>, _>("created_at"),
+        })
+        .collect();
+
+    let json = serde_json::to_string(&ProjectSharesResponse { shares }).unwrap();
 
     Response::builder()
         .status(StatusCode::OK)
         .header(axum::http::header::CONTENT_TYPE, "application/json")
-        .body(Body::from(r#"{"message": "Project shared successfully"}"#))
+        .body(Body::from(json))
         .unwrap()
 }

@@ -1,8 +1,30 @@
 import { Badge } from '@/components/ui/badge'
-import { Link, createLazyFileRoute, useParams } from '@tanstack/react-router'
+import { Link, createLazyFileRoute, useParams, redirect } from '@tanstack/react-router'
 import useSWR from 'swr'
 
+async function checkProjectAccess(owner: string, project: string) {
+  try {
+    const apiUrl = (import.meta as any).env.VITE_API_URL;
+    const response = await fetch(`${apiUrl}/project/${owner}/${project}/access`, {
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json"
+      }
+    });
+    return response.ok;
+  } catch (error) {
+    console.error('Error checking project access:', error);
+    return false;
+  }
+}
+
 export const Route = createLazyFileRoute('/project/$owner/$project/')({
+  beforeLoad: async ({ params }: { params: { owner: string; project: string } }) => {
+    const hasAccess = await checkProjectAccess(params.owner, params.project);
+    if (!hasAccess) {
+      throw redirect({ to: '/', search: { error: 'access_denied' } });
+    }
+  },
   component: ProjectDashboardIndex
 })
 
@@ -50,13 +72,9 @@ function ProjectDashboardIndex() {
       </div>
 
       {isLoading ? (
-        [...new Array(3)].map(() => (
-          <div
-            className="bg-slate-900 p-8 py-16 animate-pulse rounded-lg space-y-4 border-slate-500 hover:border-blue-400 transition-all cursor-pointer"
-          >
-
-          </div>
-        ))
+        <div className="flex justify-center items-center py-16">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+        </div>
       ) : (
         builds?.data?.length > 0 ? (
           <div className="w-full flex flex-col gap-4">

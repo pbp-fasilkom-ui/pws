@@ -4,12 +4,34 @@ import { Input } from '@/components/ui/input'
 import { RawEnvEditor } from '@/components/RawEnvEditor'
 import { DialogClose } from '@radix-ui/react-dialog'
 import { Pencil1Icon, TrashIcon, CodeIcon } from '@radix-ui/react-icons'
-import { createLazyFileRoute, useParams } from '@tanstack/react-router'
+import { createLazyFileRoute, useParams, redirect } from '@tanstack/react-router'
 import React, { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import useSWR, { useSWRConfig } from 'swr'
 
+async function checkProjectAccess(owner: string, project: string) {
+  try {
+    const apiUrl = (import.meta as any).env.VITE_API_URL;
+    const response = await fetch(`${apiUrl}/project/${owner}/${project}/access`, {
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json"
+      }
+    });
+    return response.ok;
+  } catch (error) {
+    console.error('Error checking project access:', error);
+    return false;
+  }
+}
+
 export const Route = createLazyFileRoute('/project/$owner/$project/env')({
+  beforeLoad: async ({ params }: { params: { owner: string; project: string } }) => {
+    const hasAccess = await checkProjectAccess(params.owner, params.project);
+    if (!hasAccess) {
+      throw redirect({ to: '/', search: { error: 'access_denied' } });
+    }
+  },
   component: ProjectDashboardEnv
 })
 

@@ -14,14 +14,10 @@ export const Route = createRootRoute({
   component: () => {
     const routerState = useRouterState();
 
-    useEffect(() => {
-      console.log(routerState.location);
-    }, [routerState.location]);
-
     const isAuthRoute =
-      routerState.location.pathname === "/web/login" ||
-      routerState.location.pathname === "/web/register" ||
-      routerState.location.pathname === "/web/sso";
+      routerState.location.pathname === "/login" ||
+      routerState.location.pathname === "/register" ||
+      routerState.location.pathname === "/sso";
 
     return (
       <AuthProvider>

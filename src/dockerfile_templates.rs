@@ -55,7 +55,7 @@ EXPOSE 80
 
 # Django production server
 CMD ["sh", "-c", "\
-    python manage.py migrate --noinput 2>/dev/null || true; \
+    python manage.py migrate --noinput; \
     WSGI_MODULE=$(python -c \"import glob; files = glob.glob('*/wsgi.py'); print(files[0].split('/')[0] if files else 'wsgi')\"); \
     gunicorn --bind 0.0.0.0:80 --workers 2 $WSGI_MODULE.wsgi:application"]
 "#);

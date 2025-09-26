@@ -1,8 +1,30 @@
-import { createLazyFileRoute, useParams } from "@tanstack/react-router";
+import { createLazyFileRoute, useParams, redirect } from "@tanstack/react-router";
 import useSWR from "swr";
 import { useMemo, useState, Fragment } from "react";
 
+async function checkProjectAccess(owner: string, project: string) {
+  try {
+    const apiUrl = (import.meta as any).env.VITE_API_URL;
+    const response = await fetch(`${apiUrl}/project/${owner}/${project}/access`, {
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json"
+      }
+    });
+    return response.ok;
+  } catch (error) {
+    console.error('Error checking project access:', error);
+    return false;
+  }
+}
+
 export const Route = createLazyFileRoute("/project/$owner/$project/code")({
+  beforeLoad: async ({ params }: { params: { owner: string; project: string } }) => {
+    const hasAccess = await checkProjectAccess(params.owner, params.project);
+    if (!hasAccess) {
+      throw redirect({ to: '/', search: { error: 'access_denied' } });
+    }
+  },
   component: CodeBrowser,
 });
 

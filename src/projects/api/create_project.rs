@@ -28,10 +28,10 @@ const TOKEN_LENGTH: usize = 32;
 pub struct CreateProjectRequest {
     #[garde(length(min = 1))]
     pub owner: String,
-    #[garde(alphanumeric)]
+    #[garde(length(min = 1), pattern(r"^[a-z0-9_-]+$"))]
     pub project: String,
 }
-
+ 
 #[derive(Serialize, Debug)]
 struct ErrorResponse {
     message: String

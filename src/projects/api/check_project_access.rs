@@ -1,11 +1,14 @@
-use axum::extract::{Path, State};
+use axum::extract::{State, Path};
 use axum::response::Response;
 use hyper::{Body, StatusCode};
-use uuid::Uuid;
+use serde::Serialize;
 
 use crate::{auth::Auth, startup::AppState};
-use sqlx::Row;
-use serde::Serialize;
+
+#[derive(Serialize, Debug)]
+struct AccessResponse {
+    has_access: bool,
+}
 
 #[derive(Serialize, Debug)]
 struct ErrorResponse {
@@ -13,12 +16,12 @@ struct ErrorResponse {
 }
 
 #[tracing::instrument(skip(auth, pool))]
-pub async fn post(
+pub async fn get(
     auth: Auth,
     State(AppState { pool, .. }): State<AppState>,
-    Path((owner, project, user_id)): Path<(String, String, Uuid)>,
+    Path((owner, project)): Path<(String, String)>,
 ) -> Response<Body> {
-    let Some(_user) = auth.current_user else {
+    let Some(user) = auth.current_user else {
         let json = serde_json::to_string(&ErrorResponse {
             message: "Unauthorized".to_string(),
         }).unwrap();
@@ -29,45 +32,43 @@ pub async fn post(
             .unwrap();
     };
 
-    // Get project ID
-    let project_record = sqlx::query(
-        r#"SELECT projects.id FROM projects
+    // Check if user has access to this project (either as owner or shared)
+    let has_access = sqlx::query(
+        r#"SELECT 1 FROM projects
            JOIN project_owners ON projects.owner_id = project_owners.id
-           WHERE projects.name = $1 AND project_owners.name = $2"#,
+           LEFT JOIN users_owners ON project_owners.id = users_owners.owner_id
+           LEFT JOIN project_shares ON projects.id = project_shares.project_id
+           WHERE projects.name = $1
+             AND project_owners.name = $2
+             AND (users_owners.user_id = $3 OR project_shares.user_id = $3)
+        "#,
     )
     .bind(&project)
     .bind(&owner)
+    .bind(user.id)
     .fetch_optional(&pool)
     .await
-    .unwrap();
+    .map(|result| result.is_some())
+    .unwrap_or(false);
 
-    let Some(record) = project_record else {
+    if !has_access {
         let json = serde_json::to_string(&ErrorResponse {
-            message: "Project not found".to_string(),
+            message: "Project not found or you don't have access".to_string(),
         }).unwrap();
         return Response::builder()
             .status(StatusCode::NOT_FOUND)
             .header(axum::http::header::CONTENT_TYPE, "application/json")
             .body(Body::from(json))
             .unwrap();
-    };
+    }
 
-    let project_id: Uuid = record.get("id");
-
-    // Remove from project shares
-    sqlx::query(
-        r#"DELETE FROM project_shares
-           WHERE project_id = $1 AND user_id = $2"#,
-    )
-    .bind(project_id)
-    .bind(user_id)
-    .execute(&pool)
-    .await
-    .unwrap();
+    let json = serde_json::to_string(&AccessResponse {
+        has_access: true,
+    }).unwrap();
 
     Response::builder()
         .status(StatusCode::OK)
         .header(axum::http::header::CONTENT_TYPE, "application/json")
-        .body(Body::from(r#"{"message": "Project unshared successfully"}"#))
+        .body(Body::from(json))
         .unwrap()
 }

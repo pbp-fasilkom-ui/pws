@@ -43,18 +43,18 @@ pub async fn post(
             }).unwrap();
 
             return Response::builder()
-                .status(StatusCode::UNAUTHORIZED)
                 .body(Body::from(json))
                 .unwrap();
         }
     };
     
     let project_id: Uuid = match sqlx::query(
-        r#"SELECT projects.id
+        r#"SELECT DISTINCT projects.id
            FROM projects
            JOIN project_owners ON projects.owner_id = project_owners.id
-           JOIN users_owners ON project_owners.id = users_owners.owner_id
-           WHERE users_owners.user_id = $3
+           LEFT JOIN users_owners ON project_owners.id = users_owners.owner_id
+           LEFT JOIN project_shares ON projects.id = project_shares.project_id
+           WHERE (users_owners.user_id = $3 OR project_shares.user_id = $3)
              AND projects.name = $1
              AND project_owners.name = $2
         "#,
@@ -136,7 +136,7 @@ pub async fn post(
     let git_url = format!("{protocol}://{domain}/{owner}/{project}");
 
     let json = serde_json::to_string(&RegeneratePasswordResponse {
-        git_username: user.username,
+        git_username: owner,
         git_password: new_password,
         git_url,
         message: "Password regenerated successfully. Please save this password as it won't be shown again.".to_string(),

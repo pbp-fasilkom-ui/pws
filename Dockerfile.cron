@@ -16,11 +16,11 @@ RUN mkdir -p /scripts /var/log
 COPY scripts/docker-prune-notifier.sh /scripts/
 RUN chmod +x /scripts/docker-prune-notifier.sh
 
-RUN echo "00 10 * * * /bin/bash /scripts/docker-prune-notifier.sh >> /var/log/docker-prune.log 2>&1" > /etc/crontabs/root
+RUN echo "00 02 * * * /bin/bash /scripts/docker-prune-notifier.sh >> /var/log/docker-prune.log 2>&1" > /etc/crontabs/root
 
 RUN echo '#!/bin/bash' > /start-cron.sh && \
     echo 'echo "🔧 Starting Docker Prune CRON Service..."' >> /start-cron.sh && \
-    echo 'echo "📅 Schedule: Daily at 10:00 (Asia/Jakarta)"' >> /start-cron.sh && \
+    echo 'echo "📅 Schedule: Daily at 02:00 (Asia/Jakarta)"' >> /start-cron.sh && \
     echo 'echo "📋 CRON jobs:"' >> /start-cron.sh && \
     echo 'crontab -l' >> /start-cron.sh && \
     echo 'echo "🚀 Starting CRON daemon..."' >> /start-cron.sh && \
