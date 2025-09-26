@@ -13,23 +13,23 @@ mod get_project_members;
 pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {
     Router::new()
         .route_with_tsr(
-            "/owner",
+            "/api/owner",
             post(create_project_owner::post),
         )
         .route_with_tsr(
-            "/owner/:owner_id",
+            "/api/owner/:owner_id",
             post(update_project_owner::post),
         )
         .route_with_tsr(
-            "/owner/:owner/:project/invite",
+            "/api/owner/:owner/:project/invite",
             post(invite_project_member::post),
         )
         .route_with_tsr(
-            "/owner/:owner/:project/members", 
+            "/api/owner/:owner/:project/members", 
             get(get_project_members::get)
         )
         .route_with_tsr(
-            "/owner/:owner/:project/remove/:user_id",
+            "/api/owner/:owner/:project/remove/:user_id",
             post(remove_project_member::post),
         )
         .route_layer(middleware::from_fn(auth))

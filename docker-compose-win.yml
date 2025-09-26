@@ -1,0 +1,193 @@
+services:
+  db:
+    container_name: db-pemasak
+    image: postgres:16.0-alpine3.18
+    env_file: .env
+    volumes:
+      - db-data-win:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./postgresql-win.conf:/etc/postgresql/postgresql.conf
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+      PGPORT: ${DB_PORT}
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    # Reduced resource limits for Windows development
+    deploy:
+      resources:
+        limits:
+          memory: 4G  # Reduced from 24G for local development
+        reservations:
+          memory: 2G  # Reduced from 12G
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready", "-d", "${DB_NAME}"]
+      interval: 30s
+      timeout: 60s
+      retries: 5
+      start_period: 80s
+    networks:
+      - pemasak
+    ports:
+      - "${DB_PORT}:${DB_PORT}"
+
+  server:
+    container_name: server-pemasak
+    restart: unless-stopped
+    env_file: .env
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - "GIT_BASE=./git-repo"
+    volumes:
+      - ./configuration.yml:/app/configuration.yml
+      # Windows Docker Desktop handles Docker socket differently
+      - //var/run/docker.sock:/var/run/docker.sock
+      - ./git-repo:/app/git-repo
+    depends_on:
+      db:
+        condition: service_started
+    networks:
+      - pemasak
+    # Simplified labels for local development (no SSL/ACME)
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pws-win.rule=Host(`localhost`) || Host(`pws.local`)"
+      - "traefik.http.routers.pws-win.entrypoints=web"
+      - "traefik.http.services.pws-win.loadbalancer.server.port=8080"
+
+  # Simplified monitoring stack for Windows development
+  prometheus:
+    image: prom/prometheus
+    container_name: prometheus-pemasak
+    restart: unless-stopped
+    networks:
+      - pemasak
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus-win.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"  # Reduced from 180d for development
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./config/prometheus-win:/etc/prometheus
+      - prom_data_win:/prometheus
+
+  # NOTE: node-exporter removed - not compatible with Windows containers
+  # Use Windows Performance Counters or docker stats for system monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana-pemasak
+    restart: unless-stopped
+    env_file: .env
+    networks:
+      - pemasak
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GF_SECURITY_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD:-admin}
+      - GF_INSTALL_PLUGINS=  # No external plugins for development
+    volumes:
+      - ./config/grafana-win:/etc/grafana/provisioning/datasources
+      - grafana-data-win:/var/lib/grafana
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana-win.rule=Host(`grafana.localhost`) || Host(`grafana.pws.local`)"
+      - "traefik.http.routers.grafana-win.entrypoints=web"
+      - "traefik.http.services.grafana-win.loadbalancer.server.port=3000"
+
+  portainer:
+    container_name: portainer-pemasak
+    image: portainer/portainer-ce:latest
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+    volumes:
+      - //var/run/docker.sock:/var/run/docker.sock
+      - portainer-data-win:/data
+    networks:
+      - pemasak
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.portainer-win.rule=Host(`portainer.localhost`) || Host(`portainer.pws.local`)"
+      - "traefik.http.routers.portainer-win.entrypoints=web"
+      - "traefik.http.services.portainer-win.loadbalancer.server.port=9000"
+
+  docs-ui:
+    container_name: docs-ui-pemasak
+    build:
+      context: ./docs-ui
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      - PORT=3001
+    ports:
+      - "3001:3001"
+    networks:
+      - pemasak
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.docs-win.rule=Host(`docs.localhost`) || Host(`docs.pws.local`)"
+      - "traefik.http.routers.docs-win.entrypoints=web"
+      - "traefik.http.services.docs-win.loadbalancer.server.port=3001"
+
+  traefik:
+    container_name: traefik-pemasak
+    image: traefik:v3.3
+    env_file: .env
+    command: 
+      - --api.insecure=true
+      - --api.dashboard=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --accesslog=true
+      - --entrypoints.web.address=:80
+      # No HTTPS/SSL for local development - HTTP only
+      - --log.level=INFO  # Reduced logging for development
+    ports:
+      - "80:80"
+      - "7070:8080"  # Traefik dashboard
+    depends_on:
+      server:
+        condition: service_started
+      grafana:
+        condition: service_started
+      portainer:
+        condition: service_started
+    volumes:
+      - //var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - pemasak
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik-win.rule=Host(`traefik.localhost`) || Host(`traefik.pws.local`)"
+      - "traefik.http.routers.traefik-win.entrypoints=web"
+      - "traefik.http.services.traefik-win.loadbalancer.server.port=8080"
+
+volumes:
+  db-data-win:
+    driver: local
+  prom_data_win:
+    driver: local
+  grafana-data-win:
+    driver: local
+  portainer-data-win:
+    driver: local
+
+networks:
+  pemasak:
+    name: pemasak  # Matching production network name
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.25.0.0/16  # Changed to avoid overlap with existing networks

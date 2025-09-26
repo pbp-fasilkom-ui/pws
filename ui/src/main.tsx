@@ -8,7 +8,7 @@ import { routeTree } from './routeTree.gen'
 import { ThemeProvider } from './components/theme-provider'
 
 // Create a new router instance
-const router = createRouter({ basepath: "/web", routeTree })
+const router = createRouter({ basepath: "/web/", routeTree })
 
 // Register the router instance for type safety
 declare module '@tanstack/react-router' {

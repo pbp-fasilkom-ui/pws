@@ -67,7 +67,7 @@ export default function NavSidebar({ className }: NavSidebarProps): ReactElement
         {projects?.data?.length === 0 ? (
           <Link
             className="flex items-center space-x-4 w-full py-2 px-4 rounded-lg hover:bg-slate-700 transition-all"
-            href="/web/create-project"
+            href="/create-project"
             to="/create-project"
             activeProps={{
               className: "bg-slate-700"
@@ -80,7 +80,7 @@ export default function NavSidebar({ className }: NavSidebarProps): ReactElement
           projects?.data?.map((item: any) => (
             <Link
               className="flex items-center space-x-4 w-full py-2 px-4 rounded-lg hover:bg-slate-700 transition-all"
-              href={`/web/project/${item.owner_name}/${item.name}`}
+              href={`/project/${item.owner_name}/${item.name}`}
               to={`/project/$owner/$project`}
               params={{
                 owner: item.owner_name,
@@ -92,7 +92,6 @@ export default function NavSidebar({ className }: NavSidebarProps): ReactElement
             >
               <DoubleArrowRightIcon className="w-4 h-4" />
               <span className="font-semibold text-sm">{item.owner_name}/{item.name}</span>
-            </Link>
           ))
         )}
       </div>
@@ -101,7 +100,7 @@ export default function NavSidebar({ className }: NavSidebarProps): ReactElement
         {projects?.data && projects.data.length > 0 && (
           <div className="w-full text-center text-xs text-slate-400">
             <span className="bg-slate-800 px-2 py-1 rounded">
-              {projects.data.length} / 3 projects
+              {projects?.owned_count || 0} / 3 owned projects
             </span>
           </div>
         )}
@@ -110,12 +109,12 @@ export default function NavSidebar({ className }: NavSidebarProps): ReactElement
             variant="outline" 
             size="lg" 
             className={`w-full space-x-4 border-primary text-primary hover:bg-primary ${
-              projects?.data?.length >= 3 ? 'opacity-50 cursor-not-allowed' : ''
+              (projects?.owned_count || 0) >= 3 ? 'opacity-50 cursor-not-allowed' : ''
             }`}
-            disabled={projects?.data?.length >= 3}
+            disabled={(projects?.owned_count || 0) >= 3}
           >
             <PlusIcon className="mr-2 h-4 w-4" /> 
-            {projects?.data?.length >= 3 ? 'Project Limit Reached' : 'Create New Project'}
+            {(projects?.owned_count || 0) >= 3 ? 'Project Limit Reached' : 'Create New Project'}
           </Button>
         </Link>
       </div>

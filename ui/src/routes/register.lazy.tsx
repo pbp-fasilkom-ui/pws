@@ -72,25 +72,18 @@ function Register() {
                 </CardHeader>
                 <CardContent className="gap-4 flex flex-col items-center justify-center space-y-2">
                     <div className="grid w-full max-w-sm items-center gap-1.5">
-                        <Label className="text-md" htmlFor="username">Username (SSO UI)</Label>
-                        <Input type="text" id="username" placeholder="Username" {...register("username")} />
+                        <Label className="text-md" htmlFor="username">Username</Label>
+                        <Input type="text" id="username" placeholder="Username" {...register("username", { required: true })} />
                     </div>
                     <div className="grid w-full max-w-sm items-center gap-1.5">
-                        <Label className="text-md" htmlFor="password">Password (SSO UI)</Label>
-                        <Input type="password" id="password" placeholder="Password" {...register("password")} />
+                        <Label className="text-md" htmlFor="password">Password</Label>
+                        <Input type="password" id="password" placeholder="Password" {...register("password", { required: true })} />
                     </div>
                     <div className="grid w-full max-w-sm items-center gap-1.5">
                         <Label className="text-md" htmlFor="fullName">Full Name</Label>
-                        <Input type="text" id="fullName" placeholder="Full Name" {...register("name")} />
+                        <Input type="text" id="fullName" placeholder="Full Name" {...register("name", { required: true })} />
                     </div>
 
-                    <Alert variant="default" className="max-w-sm w-full border-yellow-300 text-yellow-300 bg-transparent">
-                        <CheckCircledIcon className="h-4 w-4 !text-yellow-300" />
-                        <AlertTitle>SSO UI Validated</AlertTitle>
-                        <AlertDescription>
-                            Our system will automatically check your data with SSO UI through a secure connection to confirm your identity
-                        </AlertDescription>
-                    </Alert>
                 </CardContent>
                 <CardFooter className="flex flex-col items-center justify-center space-y-4">
                     {!isSubmitting ? (

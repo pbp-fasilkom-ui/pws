@@ -15,7 +15,9 @@ struct Project {
 
 #[derive(Serialize, Debug)]
 struct DashboardProjectResponse {
-    data: Vec<Project>
+    data: Vec<Project>,
+    owned_count: i32,
+    shared_count: i32,
 }
 pub async fn get(auth: Auth, State(AppState { pool, .. }): State<AppState>) -> Response<Body> {
     let Some(user) = auth.current_user else {
@@ -61,8 +63,30 @@ pub async fn get(auth: Auth, State(AppState { pool, .. }): State<AppState>) -> R
         }
     }).collect();
 
+    // Get owned projects count
+    let owned_count_result = sqlx::query_as::<_, (i32,)>(
+        r#"SELECT COUNT(*)::int as count
+           FROM projects
+           JOIN project_owners ON projects.owner_id = project_owners.id
+           JOIN users_owners ON project_owners.id = users_owners.owner_id
+           WHERE users_owners.user_id = $1 AND projects.deleted_at IS NULL
+        "#,
+    )
+    .bind(user.id)
+    .fetch_one(&pool)
+    .await;
+
+    let owned_count = match owned_count_result {
+        Ok(record) => record.0,
+        Err(_) => 0,
+    };
+
+    let shared_count = projects.len() as i32 - owned_count;
+
     let json = serde_json::to_string(&DashboardProjectResponse {
-        data: projects
+        data: projects,
+        owned_count,
+        shared_count,
     }).unwrap();
 
     Response::builder()

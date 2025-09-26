@@ -75,10 +75,11 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
         )
         .layer(SessionLayer::new(session_store))
         .route("/health", get(health_check))  // Health check without auth layers
+        .route("/web", routing::get(|| async { Redirect::permanent("/web/") }))
         .nest_service("/assets", ServeDir::new("assets"))
-        // TODO: find a way to have this on the "/" path instead of "/web"
+        // TODO: find a way to have this on the "/" path instead of "/web"  
         .nest_service(
-            "/web",
+            "/web/",
             ServeDir::new("ui/dist").fallback(ServeFile::new("ui/dist/index.html")),
         )
         // .fallback(fallback)  // Disabled: Traefik handles routing directly

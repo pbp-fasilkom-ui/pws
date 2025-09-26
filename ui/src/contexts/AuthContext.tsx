@@ -33,7 +33,7 @@ export function useAuth() {
   return useContext(AuthContext);
 }
 
-const AUTH_ROUTES = ["/web/login", "/web/register", "/web/sso"];
+const AUTH_ROUTES = ["/login", "/register", "/sso"];
 
 export default function AuthProvider({
   children,
@@ -162,13 +162,12 @@ export default function AuthProvider({
   }, []);
 
   useEffect(() => {
-    console.log(AUTH_ROUTES.some((route) => route === location.pathname));
     if (
       !auth.initializing &&
       !auth.authenticated &&
       !AUTH_ROUTES.some((route) => route === location.pathname)
     ) {
-      router.history.replace(`/web/sso`);
+      router.history.replace(`/sso`);
     }
   }, [auth, location.pathname]);
 
