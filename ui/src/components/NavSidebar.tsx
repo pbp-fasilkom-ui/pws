@@ -79,6 +79,7 @@ export default function NavSidebar({ className }: NavSidebarProps): ReactElement
         ) : (
           projects?.data?.map((item: any) => (
             <Link
+              key={`${item.owner_name}-${item.name}`}
               className="flex items-center space-x-4 w-full py-2 px-4 rounded-lg hover:bg-slate-700 transition-all"
               href={`/project/${item.owner_name}/${item.name}`}
               to={`/project/$owner/$project`}
@@ -92,6 +93,7 @@ export default function NavSidebar({ className }: NavSidebarProps): ReactElement
             >
               <DoubleArrowRightIcon className="w-4 h-4" />
               <span className="font-semibold text-sm">{item.owner_name}/{item.name}</span>
+            </Link>
           ))
         )}
       </div>
