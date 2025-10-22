@@ -1,4 +1,4 @@
-import { createLazyFileRoute, useParams, redirect } from '@tanstack/react-router'
+import { createFileRoute, useParams, redirect } from '@tanstack/react-router'
 import useSWR from 'swr'
 
 async function checkProjectAccess(owner: string, project: string) {
@@ -17,16 +17,6 @@ async function checkProjectAccess(owner: string, project: string) {
   }
 }
 
-export const Route = createLazyFileRoute('/project/$owner/$project/build/$buildId')({
-  beforeLoad: async ({ params }: { params: { owner: string; project: string; buildId: string } }) => {
-    const hasAccess = await checkProjectAccess(params.owner, params.project);
-    if (!hasAccess) {
-      throw redirect({ to: '/', search: { error: 'access_denied' } });
-    }
-  },
-  component: ProjectViewBuildLog
-})
-
 const apiFetcher = (input: URL | RequestInfo, options?: RequestInit) => {
   return fetch(
     input,
@@ -41,27 +31,32 @@ const apiFetcher = (input: URL | RequestInfo, options?: RequestInit) => {
   ).then(res => res.json())
 }
 
-function ProjectViewBuildLog() {
+function Logs() {
   // @ts-ignore
-  const { owner, project, buildId } = useParams({ strict: false })
-
-  const { data: build, isLoading } = useSWR(`${import.meta.env.VITE_API_URL}/project/${owner}/${project}/builds/${buildId}`, apiFetcher)
-
-  console.log(
-    build, isLoading
-  )
+  const { owner, project } = useParams({ strict: false })
+  const { data } = useSWR(`${import.meta.env.VITE_API_URL}/project/${owner}/${project}/logs`, apiFetcher)
 
   return (
     <div className="space-y-4">
       <div className="text-sm space-y-1">
-        <h1 className="text-xl font-medium">Build Logs</h1>
-        <p>Build ID: {build?.id}</p>
+        <h1 className="text-xl font-semibold">Project Logs</h1>
+        <p className="text-sm">Last 100 lines from your deployed project container</p>
       </div>
       <div className="w-full p-8 bg-slate-900 rounded-lg max-h-96 overflow-y-auto overflow-x-hidden">
         <pre className="w-full space-x-4 whitespace-pre-wrap">
-          {build?.logs}
+          {data?.logs}
         </pre>
       </div>
     </div>
   )
 }
+
+export const Route = createFileRoute('/project/$owner/$project/logs')({
+  beforeLoad: async ({ params }: { params: { owner: string; project: string } }) => {
+    const hasAccess = await checkProjectAccess(params.owner, params.project);
+    if (!hasAccess) {
+      throw redirect({ to: '/', search: { error: 'access_denied' } });
+    }
+  },
+  component: () => <Logs />
+})

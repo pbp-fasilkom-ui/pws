@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input'
 import { RawEnvEditor } from '@/components/RawEnvEditor'
 import { DialogClose } from '@radix-ui/react-dialog'
 import { Pencil1Icon, TrashIcon, CodeIcon } from '@radix-ui/react-icons'
-import { createLazyFileRoute, useParams, redirect } from '@tanstack/react-router'
+import { createFileRoute, useParams, redirect } from '@tanstack/react-router'
 import React, { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import useSWR, { useSWRConfig } from 'swr'
@@ -25,7 +25,7 @@ async function checkProjectAccess(owner: string, project: string) {
   }
 }
 
-export const Route = createLazyFileRoute('/project/$owner/$project/env')({
+export const Route = createFileRoute('/project/$owner/$project/env')({
   beforeLoad: async ({ params }: { params: { owner: string; project: string } }) => {
     const hasAccess = await checkProjectAccess(params.owner, params.project);
     if (!hasAccess) {

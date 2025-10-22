@@ -1,4 +1,4 @@
-import { createLazyFileRoute, useParams, redirect } from '@tanstack/react-router'
+import { createFileRoute, useParams, redirect } from '@tanstack/react-router'
 import { useEffect, useState } from 'react';
 import useWebSocket from 'react-use-websocket'
 
@@ -18,7 +18,7 @@ async function checkProjectAccess(owner: string, project: string) {
   }
 }
 
-export const Route = createLazyFileRoute('/project/$owner/$project/terminal')({
+export const Route = createFileRoute('/project/$owner/$project/terminal')({
   beforeLoad: async ({ params }: { params: { owner: string; project: string } }) => {
     const hasAccess = await checkProjectAccess(params.owner, params.project);
     if (!hasAccess) {

@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { createLazyFileRoute, useNavigate, useParams, redirect } from '@tanstack/react-router'
+import { createFileRoute, useNavigate, useParams, redirect } from '@tanstack/react-router'
 import toast from 'react-hot-toast'
 import { useEffect, useState } from 'react'
 
@@ -20,7 +20,7 @@ async function checkProjectAccess(owner: string, project: string) {
   }
 }
 
-export const Route = createLazyFileRoute('/project/$owner/$project/settings')({
+export const Route = createFileRoute('/project/$owner/$project/settings')({
   beforeLoad: async ({ params }: { params: { owner: string; project: string } }) => {
     const hasAccess = await checkProjectAccess(params.owner, params.project);
     if (!hasAccess) {

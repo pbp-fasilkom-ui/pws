@@ -76,7 +76,7 @@ const ProjectOwnerProjectLazyRoute = ProjectOwnerProjectLazyImport.update({
   path: '/project/$owner/$project',
   getParentRoute: () => rootRoute,
 } as any).lazy(() =>
-  import('./routes/project/$owner/$project.lazy').then((d) => d.Route),
+  import('./routes/project/$owner/$project').then((d) => d.Route),
 )
 
 const ProjectOwnerProjectIndexLazyRoute =
@@ -84,7 +84,7 @@ const ProjectOwnerProjectIndexLazyRoute =
     path: '/',
     getParentRoute: () => ProjectOwnerProjectLazyRoute,
   } as any).lazy(() =>
-    import('./routes/project/$owner/$project/index.lazy').then((d) => d.Route),
+    import('./routes/project/$owner/$project').then((d) => d.Route),
   )
 
 const ProjectOwnerProjectTerminalLazyRoute =
@@ -92,7 +92,7 @@ const ProjectOwnerProjectTerminalLazyRoute =
     path: '/terminal',
     getParentRoute: () => ProjectOwnerProjectLazyRoute,
   } as any).lazy(() =>
-    import('./routes/project/$owner/$project/terminal.lazy').then(
+    import('./routes/project/$owner/$project/terminal').then(
       (d) => d.Route,
     ),
   )
@@ -102,7 +102,7 @@ const ProjectOwnerProjectSettingsLazyRoute =
     path: '/settings',
     getParentRoute: () => ProjectOwnerProjectLazyRoute,
   } as any).lazy(() =>
-    import('./routes/project/$owner/$project/settings.lazy').then(
+    import('./routes/project/$owner/$project/settings').then(
       (d) => d.Route,
     ),
   )
@@ -112,7 +112,7 @@ const ProjectOwnerProjectLogsLazyRoute =
     path: '/logs',
     getParentRoute: () => ProjectOwnerProjectLazyRoute,
   } as any).lazy(() =>
-    import('./routes/project/$owner/$project/logs.lazy').then((d) => d.Route),
+    import('./routes/project/$owner/$project/logs').then((d) => d.Route),
   )
 
 const ProjectOwnerProjectEnvLazyRoute = ProjectOwnerProjectEnvLazyImport.update(
@@ -121,7 +121,7 @@ const ProjectOwnerProjectEnvLazyRoute = ProjectOwnerProjectEnvLazyImport.update(
     getParentRoute: () => ProjectOwnerProjectLazyRoute,
   } as any,
 ).lazy(() =>
-  import('./routes/project/$owner/$project/env.lazy').then((d) => d.Route),
+  import('./routes/project/$owner/$project/env').then((d) => d.Route),
 )
 
 const ProjectOwnerProjectBuildBuildIdLazyRoute =
@@ -129,7 +129,7 @@ const ProjectOwnerProjectBuildBuildIdLazyRoute =
     path: '/build/$buildId',
     getParentRoute: () => ProjectOwnerProjectLazyRoute,
   } as any).lazy(() =>
-    import('./routes/project/$owner/$project/build.$buildId.lazy').then(
+    import('./routes/project/$owner/$project/build.$buildId').then(
       (d) => d.Route,
     ),
   )

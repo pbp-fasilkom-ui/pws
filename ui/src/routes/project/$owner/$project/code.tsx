@@ -1,4 +1,4 @@
-import { createLazyFileRoute, useParams, redirect } from "@tanstack/react-router";
+import { createFileRoute, useParams, redirect } from "@tanstack/react-router";
 import useSWR from "swr";
 import { useMemo, useState, Fragment } from "react";
 
@@ -18,7 +18,7 @@ async function checkProjectAccess(owner: string, project: string) {
   }
 }
 
-export const Route = createLazyFileRoute("/project/$owner/$project/code")({
+export const Route = createFileRoute("/project/$owner/$project/code")({
   beforeLoad: async ({ params }: { params: { owner: string; project: string } }) => {
     const hasAccess = await checkProjectAccess(params.owner, params.project);
     if (!hasAccess) {
