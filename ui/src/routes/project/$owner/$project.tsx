@@ -1,13 +1,11 @@
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { FileTextIcon } from "@radix-ui/react-icons";
 import {
   Link,
   Outlet,
-  createLazyFileRoute,
-  useParams,
-  redirect,
 } from "@tanstack/react-router";
+import { createFileRoute, useParams, redirect } from '@tanstack/react-router';
 import useSWR from "swr";
 
 async function checkProjectAccess(owner: string, project: string) {
@@ -26,7 +24,7 @@ async function checkProjectAccess(owner: string, project: string) {
   }
 }
 
-export const Route = createLazyFileRoute("/project/$owner/$project")({
+export const Route = createFileRoute("/project/$owner/$project")({
   beforeLoad: async ({ params }: { params: { owner: string; project: string } }) => {
     const hasAccess = await checkProjectAccess(params.owner, params.project);
     if (!hasAccess) {
