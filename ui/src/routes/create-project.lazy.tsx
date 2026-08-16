@@ -89,13 +89,13 @@ function NewProject() {
   }
 
   return (
-    <div className="w-full relative min-h-screen">
-      <div className="w-full border-b border-slate-600 bg-[#020618] h-24 flex items-center absolute top-0">
-        <div className="p-8">
-          <h1 className="text-3xl font-semibold">Create a New Project</h1>
+    <div className="relative min-h-full w-full">
+      <div className="flex h-16 w-full items-center border-b border-slate-600 bg-[#020618]">
+        <div className="px-4 md:px-8">
+          <h1 className="text-2xl font-semibold">Create a New Project</h1>
         </div>
       </div>
-      <div className="h-full mt-24 p-8 pb-32 space-y-8 overflow-y-auto">
+      <div className="space-y-8 p-4 pb-16 md:p-8 md:pb-32">
         {isAtLimit && !response && (
           <Alert variant="default" className="border-red-400 text-red-400">
             <ExclamationTriangleIcon className="h-5 w-5 mt-0.5 !text-red-400" />
@@ -135,8 +135,8 @@ function NewProject() {
         <div className="space-y-4">
           <h1 className="font-semibold text-2xl">Project Information</h1>
           <form className="space-y-6" onSubmit={handleSubmit(submitHandler)}>
-            <div className="flex gap-4">
-              <div className="space-y-2">
+            <div className="flex max-w-2xl flex-col gap-4 sm:flex-row">
+              <div className="space-y-2 sm:w-40 sm:shrink-0">
                 <label className="text-slate-300">Owner</label>
                 <Controller
                   name="owner"
@@ -154,25 +154,25 @@ function NewProject() {
                   }}
                 />
               </div>
-              <div className="space-y-2">
+              <div className="min-w-0 flex-1 space-y-2">
                 <label className="text-slate-300">Project Name</label>
                 <Input 
-                  className={`bg-slate-900 border-slate-600 bg-opacity-90 min-w-96 ${isAtLimit ? 'opacity-50' : ''}`} 
+                  className={`w-full bg-slate-900 border-slate-600 bg-opacity-90 ${isAtLimit ? 'opacity-50' : ''}`}
                   {...register("project")} 
                   disabled={isAtLimit}
                 />
               </div>
             </div>
             {!isSubmitting && !isAtLimit ? (
-              <Button size="lg" className="text-white min-w-64">
+              <Button size="lg" className="w-full text-white sm:w-64">
                 Create New Project
               </Button>
             ) : isAtLimit ? (
-              <Button disabled size="lg" className="text-white min-w-64 opacity-50">
+              <Button disabled size="lg" className="w-full text-white opacity-50 sm:w-64">
                 Project Limit Reached
               </Button>
             ) : (
-              <Button disabled size="lg" className="text-white min-w-64">
+              <Button disabled size="lg" className="w-full text-white sm:w-64">
                 <Spinner className="mr-2" /> Creating Project
               </Button>
             )}
@@ -198,11 +198,11 @@ function NewProject() {
                   You will need this credential to deploy your code as you will be asked later. Please copy the credential and save it AS YOU WILL NOT BE ABLE TO ACCESS IT LATER.
                 </AlertDescription>
               </Alert>
-              <div className="w-full p-8 bg-slate-900 rounded-lg">
-                <pre>
+              <div className="w-full overflow-x-auto rounded-lg bg-slate-900 p-4 md:p-8">
+                <pre className="min-w-max">
                   Username: {response.git_username}
                 </pre>
-                <pre>
+                <pre className="min-w-max">
                   Password: {response.git_password}
                 </pre>
               </div>
@@ -214,14 +214,14 @@ function NewProject() {
                   You will need to use this command to deploy your code. If you have done this, in the future you will need to just use the third line only.
                 </p>
               </div>
-              <div className="w-full p-8 bg-slate-900 rounded-lg">
-                <pre>
+              <div className="w-full overflow-x-auto rounded-lg bg-slate-900 p-4 md:p-8">
+                <pre className="min-w-max">
                   git remote add pws {response.domain}
                 </pre>
-                <pre>
+                <pre className="min-w-max">
                   git branch -M master
                 </pre>
-                <pre>
+                <pre className="min-w-max">
                   git push pws master
                 </pre>
               </div>

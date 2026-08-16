@@ -78,7 +78,7 @@ function ProjectDashboardIndex() {
       ) : (
         builds?.data?.length > 0 ? (
           <div className="w-full flex flex-col gap-4">
-            {builds.data.map((build: { id: string, status: string, created_at: string }) => (
+            {builds.data.map((build: { id: string, status: string, created_at: string, branch?: string, commit_sha?: string }) => (
               <Link
                 to="/project/$owner/$project/build/$buildId"
                 params={{ owner, project, buildId: build.id }}
@@ -86,7 +86,11 @@ function ProjectDashboardIndex() {
                 <div className="bg-slate-900 border p-8 rounded-lg space-y-4 border-slate-500 hover:border-blue-400 transition-all cursor-pointer">
                   <div className="space-y-1">
                     <h1 className="text-lg font-semibold">{build.id}</h1>
-                    <h2 className="text-sm text-slate-400">Started at {build.created_at}</h2>
+                    <div className="flex flex-wrap items-center gap-2 text-sm text-slate-400">
+                      {build.branch && <span>{build.branch}</span>}
+                      {build.commit_sha && <code>{build.commit_sha.slice(0, 7)}</code>}
+                      <span>Started at {build.created_at}</span>
+                    </div>
                   </div>
 
                   <BuildBadge text={build.status} />

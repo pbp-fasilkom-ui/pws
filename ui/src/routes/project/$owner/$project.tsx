@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { FileTextIcon } from "@radix-ui/react-icons";
+import { FileTextIcon, QuestionMarkCircledIcon } from "@radix-ui/react-icons";
 import {
   Link,
   Outlet,
@@ -61,16 +61,16 @@ function ProjectDashboard() {
   const hasAnyBuild = builds?.data?.length > 0;
 
   return (
-    <div className="w-full relative min-h-screen">
-      <div className="w-full border-b border-slate-600 bg-[#020618] h-24 flex items-center absolute top-0">
-        <div className="p-8">
-          <h1 className="text-3xl font-semibold">Project Details</h1>
+    <div className="relative min-h-full w-full">
+      <div className="flex h-16 w-full items-center border-b border-slate-600 bg-[#020618]">
+        <div className="px-4 md:px-8">
+          <h1 className="text-2xl font-semibold">Project Details</h1>
         </div>
       </div>
 
-      <div className="h-full mt-24 space-y-8 overflow-y-auto pb-32">
-        <div className="space-y-2 border-b border-slate-600 p-8">
-          <div className="flex items-center space-x-4">
+      <div className="space-y-6 pb-16 md:space-y-8 md:pb-32">
+        <div className="space-y-4 border-b border-slate-600 p-4 md:p-8">
+          <div className="flex flex-wrap items-center gap-3 md:gap-4">
             {isLoading ? (
               <Badge className="bg-slate-700 hover:bg-slate-700 text-white text-sm rounded-full font-medium animate-pulse">
                 Loading Status...
@@ -86,16 +86,16 @@ function ProjectDashboard() {
                 Status: Empty
               </Badge>
             )}
-            <h1 className="text-2xl font-semibold">
+            <h1 className="min-w-0 break-all text-xl font-semibold md:text-2xl">
               {owner}/{project}
             </h1>
           </div>
-          <div className="flex items-center space-x-8">
-            <div className="flex bg-slate-800 p-2 max-w-min rounded-lg gap-2">
+          <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 gap-2 overflow-x-auto rounded-lg bg-slate-800 p-2 [scrollbar-width:thin]">
               <Link
                 to="/project/$owner/$project"
                 params={{ owner, project }}
-                className="flex px-4 py-2 rounded-lg items-center hover:bg-slate-900 transition-all"
+                className="flex shrink-0 items-center rounded-lg px-4 py-2 transition-all hover:bg-slate-900"
                 activeProps={{
                   className: "bg-slate-900",
                 }}
@@ -131,7 +131,7 @@ function ProjectDashboard() {
                   <Link
                     to="/project/$owner/$project/terminal"
                     params={{ owner, project }}
-                    className="flex px-4 py-2 rounded-lg items-center hover:bg-slate-900 transition-all"
+                    className="flex shrink-0 items-center rounded-lg px-4 py-2 transition-all hover:bg-slate-900"
                     activeProps={{
                       className: "bg-slate-900",
                     }}
@@ -171,7 +171,7 @@ function ProjectDashboard() {
                   <Link
                     to="/project/$owner/$project/logs"
                     params={{ owner, project }}
-                    className="flex px-4 py-2 rounded-lg items-center hover:bg-slate-900 transition-all"
+                    className="flex shrink-0 items-center rounded-lg px-4 py-2 transition-all hover:bg-slate-900"
                     activeProps={{
                       className: "bg-slate-900",
                     }}
@@ -201,7 +201,7 @@ function ProjectDashboard() {
                 <Link
                   to="/project/$owner/$project/code"
                   params={{ owner, project }}
-                  className="flex px-4 py-2 rounded-lg items-center hover:bg-slate-900 transition-all"
+                  className="flex shrink-0 items-center rounded-lg px-4 py-2 transition-all hover:bg-slate-900"
                   activeProps={{ className: "bg-slate-900" }}
                 >
                   <svg
@@ -232,7 +232,7 @@ function ProjectDashboard() {
               <Link
                 to="/project/$owner/$project/env"
                 params={{ owner, project }}
-                className="flex px-4 py-2 rounded-lg items-center hover:bg-slate-900 transition-all"
+                className="flex shrink-0 items-center rounded-lg px-4 py-2 transition-all hover:bg-slate-900"
                 activeProps={{
                   className: "bg-slate-900",
                 }}
@@ -241,9 +241,18 @@ function ProjectDashboard() {
                 Environs
               </Link>
               <Link
+                to="/project/$owner/$project/troubleshooting"
+                params={{ owner, project }}
+                className="flex shrink-0 items-center rounded-lg px-4 py-2 transition-all hover:bg-slate-900"
+                activeProps={{ className: "bg-slate-900" }}
+              >
+                <QuestionMarkCircledIcon width="20" height="20" className="mr-1.5" />
+                Troubleshooting
+              </Link>
+              <Link
                 to="/project/$owner/$project/settings"
                 params={{ owner, project }}
-                className="flex px-4 py-2 rounded-lg items-center hover:bg-slate-900 transition-all"
+                className="flex shrink-0 items-center rounded-lg px-4 py-2 transition-all hover:bg-slate-900"
                 activeProps={{
                   className: "bg-slate-900",
                 }}
@@ -267,6 +276,8 @@ function ProjectDashboard() {
 
             <a
               target="_blank"
+              rel="noreferrer"
+              className="w-full lg:w-auto"
               href={
                 builds?.data?.length > 0
                   ? `http://${owner.replace(".", "-")}-${project}.${domain}`
@@ -275,7 +286,7 @@ function ProjectDashboard() {
             >
               <Button
                 size="lg"
-                className="text-foreground"
+                className="w-full text-foreground lg:w-auto"
                 disabled={builds?.data?.length <= 0}
               >
                 <svg
@@ -298,7 +309,7 @@ function ProjectDashboard() {
             </a>
           </div>
         </div>
-        <div className="px-8">
+        <div className="min-w-0 px-4 md:px-8">
           <Outlet />
         </div>
       </div>

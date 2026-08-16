@@ -1,6 +1,6 @@
 import { createFileRoute, useParams, redirect } from "@tanstack/react-router";
 import useSWR from "swr";
-import { useMemo, useState, Fragment } from "react";
+import { useEffect, useMemo, useState, Fragment } from "react";
 
 async function checkProjectAccess(owner: string, project: string) {
   try {
@@ -53,28 +53,86 @@ type TreeResponse = {
   entries: TreeEntry[];
 };
 
+type RefsResponse = {
+  default_branch: string | null;
+  deployed_branch: string | null;
+  branches: string[];
+};
+
+type FileResponse = {
+  ref: string;
+  path: string;
+  size: number;
+  content: string;
+};
+
 function CodeBrowser() {
   // @ts-ignore
   const { owner, project } = useParams({ strict: false });
-  const [ref, setRef] = useState<string>("HEAD");
+  const [ref, setRef] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const refsUrl = `${import.meta.env.VITE_API_URL}/project/${owner}/${project}/refs`;
+  const { data: refs, isLoading: refsLoading } = useSWR<RefsResponse>(
+    refsUrl,
+    apiFetcher,
+  );
+
+  useEffect(() => {
+    if (!refs || ref) return;
+    const initialRef =
+      (refs.deployed_branch && refs.branches.includes(refs.deployed_branch)
+        ? refs.deployed_branch
+        : null) ??
+      (refs.default_branch && refs.branches.includes(refs.default_branch)
+        ? refs.default_branch
+        : null) ??
+      refs.branches[0] ??
+      null;
+    setRef(initialRef);
+  }, [refs, ref]);
 
   return (
     <div className="w-full">
       {/* Header / Controls */}
       <div className="mb-4 flex items-center gap-3">
         <span className="text-sm text-slate-300">Ref</span>
-        <input
-          value={ref}
-          onChange={(e) => setRef(e.target.value)}
-          placeholder="HEAD or branch/tag/sha"
-          className="rounded-md bg-slate-800 px-3 py-2 text-sm outline-none ring-1 ring-slate-700 focus:ring-slate-500"
-        />
+        <select
+          value={ref ?? ""}
+          onChange={(e) => {
+            setRef(e.target.value);
+            setSelectedFile(null);
+          }}
+          disabled={refsLoading || !ref}
+          className="min-w-56 rounded-md bg-slate-800 px-3 py-2 text-sm outline-none ring-1 ring-slate-700 focus:ring-slate-500 disabled:opacity-60"
+        >
+          {!ref && <option value="">Loading branches...</option>}
+          {refs?.branches.map((branch) => (
+            <option key={branch} value={branch}>
+              {branch}
+              {branch === refs.deployed_branch ? " (deployed)" : ""}
+              {branch === refs.default_branch ? " (default branch)" : ""}
+            </option>
+          ))}
+        </select>
       </div>
 
-      {/* Tree root */}
-      <div className="rounded-lg border border-slate-700 bg-slate-900">
-        <Tree owner={owner} project={project} refValue={ref} path="" />
-      </div>
+      {!ref ? (
+        <div className="rounded-lg border border-slate-700 bg-slate-900">
+          <RowSkeleton label="Loading repository branches..." />
+        </div>
+      ) : selectedFile ? (
+        <FilePreview
+          owner={owner}
+          project={project}
+          refValue={ref}
+          path={selectedFile}
+          onBack={() => setSelectedFile(null)}
+        />
+      ) : (
+        <div className="rounded-lg border border-slate-700 bg-slate-900">
+          <Tree owner={owner} project={project} refValue={ref} path="" onSelectFile={setSelectedFile} />
+        </div>
+      )}
     </div>
   );
 }
@@ -84,11 +142,13 @@ function Tree({
   project,
   refValue,
   path,
+  onSelectFile,
 }: {
   owner: string;
   project: string;
   refValue: string;
   path: string;
+  onSelectFile: (path: string) => void;
 }) {
   const url = useMemo(() => {
     const base = import.meta.env.VITE_API_URL as string;
@@ -137,9 +197,10 @@ function Tree({
               refValue={refValue}
               parentPath={path}
               name={e.name}
+              onSelectFile={onSelectFile}
             />
           ) : (
-            <Leaf entry={e} />
+            <Leaf entry={e} onClick={e.kind === "file" ? () => onSelectFile(joinPath(path, e.name)) : undefined} />
           )}
         </Fragment>
       ))}
@@ -153,12 +214,14 @@ function DirNode({
   refValue,
   parentPath,
   name,
+  onSelectFile,
 }: {
   owner: string;
   project: string;
   refValue: string;
   parentPath: string;
   name: string;
+  onSelectFile: (path: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const childPath = joinPath(parentPath, name);
@@ -182,6 +245,7 @@ function DirNode({
             project={project}
             refValue={refValue}
             path={childPath}
+            onSelectFile={onSelectFile}
           />
         </div>
       )}
@@ -189,9 +253,15 @@ function DirNode({
   );
 }
 
-function Leaf({ entry }: { entry: TreeEntry }) {
+function Leaf({ entry, onClick }: { entry: TreeEntry; onClick?: () => void }) {
   return (
-    <li className="flex items-center gap-2 px-3 py-2 text-slate-200">
+    <li>
+      <button
+        type="button"
+        disabled={!onClick}
+        onClick={onClick}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-200 enabled:hover:bg-slate-800/60 disabled:cursor-default"
+      >
       {entry.kind === "file" && <FileIcon />}
       {entry.kind === "symlink" && <LinkIcon />}
       {entry.kind === "submodule" && <GitIcon />}
@@ -202,7 +272,42 @@ function Leaf({ entry }: { entry: TreeEntry }) {
           {formatBytes(entry.size)}
         </span>
       ) : null}
+      </button>
     </li>
+  );
+}
+
+function FilePreview({ owner, project, refValue, path, onBack }: {
+  owner: string;
+  project: string;
+  refValue: string;
+  path: string;
+  onBack: () => void;
+}) {
+  const url = useMemo(() => {
+    const base = import.meta.env.VITE_API_URL as string;
+    const requestUrl = new URL(`${base}/project/${owner}/${project}/file`);
+    requestUrl.searchParams.set("ref", refValue);
+    requestUrl.searchParams.set("path", path);
+    return requestUrl.toString();
+  }, [owner, project, refValue, path]);
+  const { data, error, isLoading } = useSWR<FileResponse>(["file", url], ([, requestUrl]) => apiFetcher(requestUrl));
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-slate-700 bg-slate-900">
+      <div className="flex min-w-0 items-center gap-3 border-b border-slate-700 px-3 py-2">
+        <button type="button" onClick={onBack} className="shrink-0 rounded px-2 py-1 text-sm text-blue-400 hover:bg-slate-800">← Back</button>
+        <span className="min-w-0 truncate font-mono text-sm">{path}</span>
+        {data && <span className="ml-auto shrink-0 text-xs text-slate-400">{formatBytes(data.size)}</span>}
+      </div>
+      {isLoading ? (
+        <RowSkeleton label={`Loading ${path}...`} />
+      ) : error ? (
+        <ErrorRow message={(error as Error).message.includes("413") ? "File is too large to preview (maximum 512 KiB)." : (error as Error).message.includes("415") ? "Binary files cannot be previewed." : `Failed to load file: ${(error as Error).message}`} />
+      ) : (
+        <pre className="max-h-[65vh] overflow-auto p-4 text-sm leading-6"><code>{data?.content}</code></pre>
+      )}
+    </div>
   );
 }
 

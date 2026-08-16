@@ -21,6 +21,7 @@ export const AuthContext = createContext({
   handlers: {
     login: (_username: string, _password: string) => {},
     loginWithSSO: (_ticket: string) => {},
+    logout: () => {},
     refreshAuthState: () => {},
   },
 });
@@ -50,6 +51,7 @@ export default function AuthProvider({
     handlers: {
       login: (_username: string, _password: string) => {},
       loginWithSSO: (_ticket: string) => {},
+      logout: () => {},
       refreshAuthState: () => {},
     },
   });
@@ -118,6 +120,24 @@ export default function AuthProvider({
     );
   }
 
+  async function logout() {
+    try {
+      await fetch(`${import.meta.env.VITE_API_URL}/logout`, {
+        method: "POST",
+        credentials: "include",
+        redirect: "manual",
+      });
+    } finally {
+      setAuth((current) => ({
+        ...current,
+        user: { id: "", username: "", name: "", attributes: {} },
+        authenticated: false,
+        initializing: false,
+      }));
+      router.history.replace("/sso");
+    }
+  }
+
   async function refreshAuthState() {
     try {
       const data = await fetch(`${import.meta.env.VITE_API_URL}/validate`, {
@@ -178,6 +198,7 @@ export default function AuthProvider({
         handlers: {
           login,
           loginWithSSO,
+          logout,
           refreshAuthState,
         },
       }}
@@ -193,4 +214,3 @@ export default function AuthProvider({
     </AuthContext.Provider>
   );
 }
-
