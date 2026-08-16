@@ -53,9 +53,15 @@ services:
       - pemasak
     labels:
       - "traefik.enable=true"
+      - "traefik.http.routers.pws-http.rule=Host(`${DOMAIN:-localhost}`) || Host(`www.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.pws-http.entrypoints=web"
+      - "traefik.http.routers.pws-http.middlewares=pws-https-redirect"
+      - "traefik.http.middlewares.pws-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.pws-https-redirect.redirectscheme.permanent=true"
       - "traefik.http.routers.pws.rule=Host(`${DOMAIN:-localhost}`) || Host(`www.${DOMAIN:-localhost}`)"
       - "traefik.http.routers.pws.entrypoints=websecure"
       - "traefik.http.routers.pws.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.pws.service=pws"
       - "traefik.http.services.pws.loadbalancer.server.port=8080"
 
   # Skip monitoring stack for Windows (Optional)
@@ -112,17 +118,19 @@ services:
       - grafana-data:/var/lib/grafana
     labels:
       - "traefik.enable=true"
+      - "traefik.http.routers.grafana-http.rule=Host(`grafana.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.grafana-http.entrypoints=web"
+      - "traefik.http.routers.grafana-http.service=grafana"
       - "traefik.http.routers.grafana.rule=Host(`grafana.${DOMAIN:-localhost}`)"
       - "traefik.http.routers.grafana.entrypoints=websecure"
       - "traefik.http.routers.grafana.tls=true"
+      - "traefik.http.routers.grafana.service=grafana"
       - "traefik.http.services.grafana.loadbalancer.server.port=3000"
 
   portainer:
     container_name: portainer-pemasak
-    image: portainer/portainer-ce:latest
+    image: portainer/portainer-ce:2.39.6
     restart: always
-    ports:
-      - "9000:9000"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer-data:/data
@@ -130,9 +138,13 @@ services:
       - pemasak
     labels:
       - "traefik.enable=true"
+      - "traefik.http.routers.portainer-http.rule=Host(`portainer.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.portainer-http.entrypoints=web"
+      - "traefik.http.routers.portainer-http.service=portainer"
       - "traefik.http.routers.portainer.rule=Host(`portainer.${DOMAIN:-localhost}`)"
       - "traefik.http.routers.portainer.entrypoints=websecure"
       - "traefik.http.routers.portainer.tls=true"
+      - "traefik.http.routers.portainer.service=portainer"
       - "traefik.http.services.portainer.loadbalancer.server.port=9000"
 
   docs-ui:
@@ -143,21 +155,22 @@ services:
     restart: always
     environment:
       - PORT=3001
-    ports:
-      - "3001:3001"
     networks:
       - pemasak
     labels:
       - "traefik.enable=true"
+      - "traefik.http.routers.docs-http.rule=Host(`docs.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.docs-http.entrypoints=web"
+      - "traefik.http.routers.docs-http.service=docs"
       - "traefik.http.routers.docs.rule=Host(`docs.${DOMAIN:-localhost}`)"
       - "traefik.http.routers.docs.entrypoints=websecure"
       - "traefik.http.routers.docs.tls=true"
+      - "traefik.http.routers.docs.service=docs"
       - "traefik.http.services.docs.loadbalancer.server.port=3001"
-
 
   traefik:
     container_name: traefik-pemasak
-    image: traefik:v3.3
+    image: traefik:v3.6
     env_file: .env
     command: 
       - --api.insecure=true
@@ -181,10 +194,6 @@ services:
       - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}
       - --certificatesresolvers.letsencrypt.acme.storage=/acme/letsencrypt.json
       - --certificatesresolvers.letsencrypt.acme.caserver=https://acme-v02.api.letsencrypt.org/directory
-      # HTTP to HTTPS redirect (excluding ACME challenge)
-      - --entrypoints.web.http.redirections.entrypoint.to=websecure
-      - --entrypoints.web.http.redirections.entrypoint.scheme=https
-      - --entrypoints.web.http.redirections.entrypoint.permanent=true
     ports:
       - "80:80"
       - "443:443"
@@ -204,9 +213,13 @@ services:
       - pemasak
     labels:
       - "traefik.enable=true"
+      - "traefik.http.routers.traefik-http.rule=Host(`traefik.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.traefik-http.entrypoints=web"
+      - "traefik.http.routers.traefik-http.service=traefik"
       - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN:-localhost}`)"
       - "traefik.http.routers.traefik.entrypoints=websecure"
       - "traefik.http.routers.traefik.tls=true"
+      - "traefik.http.routers.traefik.service=traefik"
       - "traefik.http.services.traefik.loadbalancer.server.port=8080"
 
 volumes:

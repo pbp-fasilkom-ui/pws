@@ -1,8 +1,8 @@
 FROM node:lts-iron as prod
-RUN npm install -g pnpm
+RUN npm install -g pnpm@8.15.9
 WORKDIR /app
 COPY . .
-RUN pnpm install
+RUN pnpm install --frozen-lockfile
 RUN pnpm build
 
 FROM prod as serve
