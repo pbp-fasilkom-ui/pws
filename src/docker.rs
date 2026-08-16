@@ -1,4 +1,4 @@
-use std::{collections::HashMap, process::Stdio};
+use std::{collections::HashMap, process::Stdio, sync::Arc};
 
 use anyhow::Result;
 use serde_json;
@@ -13,7 +13,45 @@ use bollard::{
 };
 use crate::{dockerfile_templates::DjangoDockerfile, get_env, configuration::Settings};
 use sqlx::PgPool;
-use tokio::process::Command;
+use tokio::{io::{AsyncRead, AsyncReadExt}, process::Command};
+use crate::build_logs::BuildLogState;
+
+async fn stream_command_output(
+    mut cmd: Command,
+    log_state: Arc<BuildLogState>,
+) -> Result<()> {
+    cmd.kill_on_drop(true);
+    let mut child = cmd.spawn().map_err(|err| {
+        tracing::error!(?err, "Failed to spawn docker build");
+        err
+    })?;
+
+    async fn forward<R: AsyncRead + Unpin>(mut reader: R, state: Arc<BuildLogState>) -> std::io::Result<()> {
+        let mut bytes = [0_u8; 8192];
+        loop {
+            let count = reader.read(&mut bytes).await?;
+            if count == 0 {
+                break;
+            }
+            state.append(&String::from_utf8_lossy(&bytes[..count])).await;
+        }
+        Ok(())
+    }
+
+    let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("Docker build stdout is not piped"))?;
+    let stderr = child.stderr.take().ok_or_else(|| anyhow::anyhow!("Docker build stderr is not piped"))?;
+    let stdout_task = tokio::spawn(forward(stdout, log_state.clone()));
+    let stderr_task = tokio::spawn(forward(stderr, log_state));
+
+    let status = child.wait().await?;
+    stdout_task.await??;
+    stderr_task.await??;
+
+    if !status.success() {
+        return Err(anyhow::anyhow!("docker build exited with status {status}"));
+    }
+    Ok(())
+}
 
 pub struct DockerContainer {
     pub ip: String,
@@ -29,6 +67,7 @@ pub async fn build_docker(
     container_src: &str,
     pool: PgPool,
     config: &Settings,
+    log_state: Arc<BuildLogState>,
 ) -> Result<DockerContainer> {
     let image_name = format!("{}:latest", container_name);
     let old_image_name = format!("{}:old", container_name);
@@ -93,7 +132,7 @@ pub async fn build_docker(
 
     tracing::info!("BUILDING START");
 
-    let build_log = match std::path::Path::new(container_src)
+    match std::path::Path::new(container_src)
         .join("Dockerfile")
         .exists()
     {
@@ -130,20 +169,7 @@ pub async fn build_docker(
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-            let child = cmd.spawn().map_err(|err| {
-                tracing::error!("Failed to spawn docker build: {}", err);
-                err
-            })?;
-
-            let output = child.wait_with_output().await.map_err(|err| {
-                tracing::error!("Failed to wait for docker build: {}", err);
-                err
-            })?;
-
-            if !output.status.success() {
-                return Err(anyhow::anyhow!(String::from_utf8(output.stderr).unwrap()));
-            }
-            String::from_utf8(output.stderr).unwrap()
+            stream_command_output(cmd, log_state.clone()).await?;
         }
         false => {
             tracing::debug!(container_name, "Generating efficient Django Dockerfile");
@@ -189,15 +215,7 @@ pub async fn build_docker(
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-            let child = cmd.spawn().map_err(|err| {
-                tracing::error!("Failed to spawn docker build: {}", err);
-                err
-            })?;
-
-            let output = child.wait_with_output().await.map_err(|err| {
-                tracing::error!("Failed to wait for docker build: {}", err);
-                err
-            })?;
+            let build_result = stream_command_output(cmd, log_state.clone()).await;
 
             // Cleanup: Delete temporary Dockerfile
             if let Err(err) = std::fs::remove_file(&dockerfile_path) {
@@ -206,13 +224,11 @@ pub async fn build_docker(
                 tracing::debug!("Cleaned up temporary Dockerfile: {:?}", dockerfile_path);
             }
 
-            if !output.status.success() {
-                return Err(anyhow::anyhow!(String::from_utf8(output.stderr).unwrap()));
-            }
-            
-            String::from_utf8(output.stderr).unwrap()
+            build_result?;
         }
     };
+
+    let (build_log, _, _, _) = log_state.snapshot().await;
 
     // check if image exists
     let images = &docker
@@ -347,12 +363,16 @@ pub async fn build_docker(
     let config: Config<String> = Config {
         image: Some(image_name.clone()),
         env: Some(environment_strings),
-        // Auto-add Traefik labels for PWS deployed containers with HTTPS
+        // Auto-add HTTP and HTTPS Traefik routes for student containers.
         labels: Some(HashMap::from([
             ("traefik.enable".to_string(), "true".to_string()),
+            (format!("traefik.http.routers.{}-http.rule", container_name), format!("Host(`{}.{}`)", container_name, get_env::domain())),
+            (format!("traefik.http.routers.{}-http.entrypoints", container_name), "web".to_string()),
+            (format!("traefik.http.routers.{}-http.service", container_name), container_name.to_string()),
             (format!("traefik.http.routers.{}.rule", container_name), format!("Host(`{}.{}`)", container_name, get_env::domain())),
             (format!("traefik.http.routers.{}.entrypoints", container_name), "websecure".to_string()),
             (format!("traefik.http.routers.{}.tls", container_name), "true".to_string()),
+            (format!("traefik.http.routers.{}.service", container_name), container_name.to_string()),
             (format!("traefik.http.services.{}.loadbalancer.server.port", container_name), "80".to_string()),
         ])),
         host_config: Some(HostConfig {

@@ -81,7 +81,7 @@ web: gunicorn [project_name].wsgi
 
 and make sure have `gunicorn` in the `requirements.txt` file.
 
-2. Make sure to push branch is master to deploy to the server since the server checks only the master branch.
+2. Push the branch you want to deploy. PWS deploys the branch included in the push and supports both `main` and `master`.
 
 ### Setting up the docusaurus
 

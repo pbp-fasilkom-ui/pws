@@ -20,6 +20,7 @@ use uuid::Uuid;
 use std::net::{SocketAddr, TcpListener};
 
 use crate::auth::User;
+use crate::build_logs::BuildLogRegistry;
 use crate::configuration::Settings;
 use crate::queue::BuildQueueItem;
 use crate::{auth, dashboard, git, owner, projects, telemetry};
@@ -33,6 +34,7 @@ pub struct AppState {
     pub client: hyper::client::Client<hyper::client::HttpConnector, hyper::Body>,
     pub pool: PgPool,
     pub build_channel: Sender<BuildQueueItem>,
+    pub build_logs: BuildLogRegistry,
     pub secure: bool,
 }
 
@@ -307,4 +309,3 @@ pub async fn fallback_middleware(
             .unwrap())
     }
 }
-

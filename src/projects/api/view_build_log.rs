@@ -29,13 +29,15 @@ impl fmt::Display for BuildState {
     }
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, sqlx::FromRow)]
 struct BuildDetailResponse {
     id: Uuid,
     status: BuildState,
     created_at: DateTime<Utc>,
     finished_at: Option<DateTime<Utc>>,
-    logs: String
+    logs: String,
+    branch: Option<String>,
+    commit_sha: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
@@ -91,12 +93,12 @@ pub async fn get(
         }
     };
 
-    let build = match sqlx::query!(
-        r#"SELECT id, project_id, status AS "status: BuildState", created_at, finished_at, log 
+    let build = match sqlx::query_as::<_, BuildDetailResponse>(
+        r#"SELECT id, status, created_at, finished_at, log AS logs, branch, commit_sha
         FROM builds WHERE id = $1
-        ORDER BY created_at DESC"#,
-        build_id
+        ORDER BY created_at DESC"#
     )
+    .bind(build_id)
     .fetch_one(&pool)
     .await 
     {
@@ -113,13 +115,7 @@ pub async fn get(
         }, 
     };
 
-    let json = serde_json::to_string(&BuildDetailResponse {
-        id: build.id,
-        status: build.status,
-        created_at: build.created_at,
-        finished_at: build.finished_at,
-        logs: build.log,
-    }).unwrap();
+    let json = serde_json::to_string(&build).unwrap();
 
     Response::builder()
         .status(StatusCode::OK)

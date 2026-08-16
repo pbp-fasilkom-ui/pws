@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod build_logs;
 pub mod configuration;
 pub mod docker;
 pub mod dockerfile_templates;

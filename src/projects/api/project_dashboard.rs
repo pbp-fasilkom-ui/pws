@@ -34,12 +34,14 @@ struct ErrorResponse {
     message: String,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, sqlx::FromRow)]
 struct Build {
     id: Uuid,
     status: BuildState,
     created_at: DateTime<Utc>,
     finished_at: Option<DateTime<Utc>>,
+    branch: Option<String>,
+    commit_sha: Option<String>,
 }
 
 #[derive(Serialize, Debug)]
@@ -95,12 +97,12 @@ pub async fn get(
         }
     };
 
-    let build_records = match sqlx::query!(
-        r#"SELECT id, project_id, status AS "status: BuildState", created_at, finished_at 
+    let build_records = match sqlx::query_as::<_, Build>(
+        r#"SELECT id, status, created_at, finished_at, branch, commit_sha
         FROM builds WHERE project_id = $1
-        ORDER BY created_at DESC"#,
-        project_record.id
+        ORDER BY created_at DESC"#
     )
+    .bind(project_record.id)
     .fetch_all(&pool)
     .await 
     {
@@ -117,17 +119,8 @@ pub async fn get(
         }, 
     };
 
-    let builds = build_records.into_iter().map(|record|{ 
-        Build {
-            id: record.id,
-            status: record.status,
-            created_at: record.created_at,
-            finished_at: record.finished_at,
-        }
-    }).collect::<Vec<_>>();
-
     let json = serde_json::to_string(&ProjectBuildListResponse {
-        data: builds
+        data: build_records
     }).unwrap();
 
     Response::builder()

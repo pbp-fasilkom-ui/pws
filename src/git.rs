@@ -348,7 +348,7 @@ pub async fn receive_pack_rpc(
         true => format!("{base}/{owner}/{repo}"),
         false => format!("{base}/{owner}/{repo}.git"),
     };
-    let head_dir = format!("{path}/refs/heads");
+    let pushed_branches = receive_pack_updated_branches(&headers, &body);
 
     let res = service_rpc("receive-pack", &path, headers, body).await;
     if res.status() != StatusCode::OK {
@@ -364,11 +364,17 @@ pub async fn receive_pack_rpc(
         return res;
     }
 
+    // A tag-only push or branch deletion should not trigger an application build.
+    let Some(deploy_branch) = select_deploy_branch(pushed_branches) else {
+        tracing::info!("No updated branch found in receive-pack; skipping deployment");
+        return res;
+    };
+
     let container_src = format!("{path}/clone");
     let container_name = format!("{owner}-{}", repo.trim_end_matches(".git")).replace('.', "-");
 
-    // FIXED: Get HEAD commit directly from bare repo to ensure consistency 
-    // This resolves the issue where copy directory was out of sync with tree view
+    // Resolve the branch that was actually pushed instead of assuming the bare
+    // repository's HEAD points to master.
     let bare_repo_path = if repo.ends_with(".git") {
         format!("{base}/{owner}/{repo}")
     } else {
@@ -377,10 +383,11 @@ pub async fn receive_pack_rpc(
     
     let head_commit_id = match git2::Repository::open_bare(&bare_repo_path) {
         Ok(bare_repo) => {
-            match bare_repo.revparse_single("HEAD") {
+            let branch_ref = format!("refs/heads/{deploy_branch}");
+            match bare_repo.revparse_single(&branch_ref) {
                 Ok(obj) => {
                     let commit_id = obj.id();
-                    tracing::info!("Got HEAD commit from bare repo: {}", commit_id);
+                    tracing::info!(branch = %deploy_branch, "Got pushed branch commit from bare repo: {}", commit_id);
                     commit_id
                 },
                 Err(e) => {
@@ -412,7 +419,9 @@ pub async fn receive_pack_rpc(
     
     // Fresh clone from bare repo - always up-to-date
     tracing::info!("Creating fresh clone from bare repo to: {}", container_src);
-    match git2::Repository::clone(&path, &container_src) {
+    let mut repo_builder = git2::build::RepoBuilder::new();
+    repo_builder.branch(&deploy_branch);
+    match repo_builder.clone(&path, std::path::Path::new(&container_src)) {
         Ok(cloned_repo) => {
             tracing::info!("Fresh clone completed, now setting to exact HEAD commit");
             
@@ -447,11 +456,81 @@ pub async fn receive_pack_rpc(
                 container_src,
                 owner,
                 repo,
+                branch: deploy_branch,
+                commit_sha: head_commit_id.to_string(),
             })
             .await
     });
 
     res
+}
+
+fn receive_pack_updated_branches(headers: &HeaderMap, body: &Bytes) -> Vec<String> {
+    let decoded;
+    let body = match headers.get("Content-Encoding").and_then(|value| value.to_str().ok()) {
+        Some("gzip") => {
+            let mut reader = flate2::read::GzDecoder::new(body.as_ref());
+            let mut bytes = Vec::new();
+            if reader.read_to_end(&mut bytes).is_err() {
+                return Vec::new();
+            }
+            decoded = bytes;
+            decoded.as_slice()
+        }
+        _ => body.as_ref(),
+    };
+
+    let mut branches = Vec::new();
+    let mut offset = 0;
+
+    while offset + 4 <= body.len() {
+        let Ok(length_text) = std::str::from_utf8(&body[offset..offset + 4]) else {
+            break;
+        };
+        let Ok(length) = usize::from_str_radix(length_text, 16) else {
+            break;
+        };
+        offset += 4;
+
+        if length == 0 {
+            continue;
+        }
+        if length < 4 || offset + length - 4 > body.len() {
+            break;
+        }
+
+        let payload = &body[offset..offset + length - 4];
+        offset += length - 4;
+        let command = payload.split(|byte| *byte == 0).next().unwrap_or(payload);
+        let Ok(command) = std::str::from_utf8(command) else {
+            continue;
+        };
+        let mut fields = command.split_whitespace();
+        let _old_id = fields.next();
+        let new_id = fields.next();
+        let reference = fields.next();
+
+        if let (Some(new_id), Some(reference)) = (new_id, reference) {
+            if !new_id.bytes().all(|byte| byte == b'0') {
+                if let Some(branch) = reference.strip_prefix("refs/heads/") {
+                    if !branches.iter().any(|existing| existing == branch) {
+                        branches.push(branch.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    branches
+}
+
+fn select_deploy_branch(mut branches: Vec<String>) -> Option<String> {
+    for preferred in ["main", "master"] {
+        if let Some(index) = branches.iter().position(|branch| branch == preferred) {
+            return Some(branches.remove(index));
+        }
+    }
+    branches.into_iter().next()
 }
 
 pub async fn upload_pack_rpc(

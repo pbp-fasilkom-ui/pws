@@ -82,6 +82,8 @@ CREATE TABLE builds (
   
   status build_state NOT NULL DEFAULT 'pending',
   log TEXT NOT NULL DEFAULT '',
+  branch TEXT,
+  commit_sha TEXT,
 
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),

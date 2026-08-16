@@ -1,25 +1,34 @@
 use std::{
     collections::{HashSet, VecDeque},
     hash::Hash,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
+    panic::AssertUnwindSafe,
+    sync::Arc,
     time::{SystemTime, Duration},
 };
 
 use anyhow::Result;
+use futures_util::FutureExt;
 use sqlx::PgPool;
 use thiserror::Error;
 use tokio::sync::mpsc::{self, Receiver, Sender};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use tokio::time::{timeout, sleep};
 use ulid::Ulid;
 use uuid::Uuid;
 
-use crate::{docker::{build_docker, DockerContainer}, configuration::Settings};
+use crate::{
+    build_logs::{BuildLogRegistry, BuildLogState},
+    docker::{build_docker, DockerContainer},
+    configuration::Settings,
+};
 
 type ConcurrentMutex<T> = Arc<Mutex<T>>;
+
+async fn refresh_queue_positions(queue: &VecDeque<BuildItem>) {
+    for (index, build) in queue.iter().enumerate() {
+        build.log_state.queue_position(Some(index + 1)).await;
+    }
+}
 
 #[derive(Error, Debug)]
 #[error("{message:?}")]
@@ -33,6 +42,8 @@ pub struct BuildQueueItem {
     pub container_src: String,
     pub owner: String,
     pub repo: String,
+    pub branch: String,
+    pub commit_sha: String,
 }
 
 #[derive(Debug)]
@@ -42,6 +53,9 @@ pub struct BuildItem {
     pub container_src: String,
     pub owner: String,
     pub repo: String,
+    pub branch: String,
+    pub commit_sha: String,
+    pub log_state: Arc<BuildLogState>,
     pub created_at: SystemTime,
 }
 
@@ -63,26 +77,33 @@ impl PartialEq for BuildItem {
 impl Eq for BuildItem {}
 
 pub struct BuildQueue {
-    pub build_count: Arc<AtomicUsize>,
+    pub build_slots: Arc<Semaphore>,
     pub waiting_queue: ConcurrentMutex<VecDeque<BuildItem>>,
     pub waiting_set: ConcurrentMutex<HashSet<String>>,
     pub receive_channel: Receiver<BuildQueueItem>,
     pub pg_pool: PgPool,
     pub config: Settings,
+    pub build_logs: BuildLogRegistry,
 }
 
 impl BuildQueue {
-    pub fn new(build_count: usize, pg_pool: PgPool, config: Settings) -> (Self, Sender<BuildQueueItem>) {
+    pub fn new(
+        build_count: usize,
+        pg_pool: PgPool,
+        config: Settings,
+        build_logs: BuildLogRegistry,
+    ) -> (Self, Sender<BuildQueueItem>) {
         let (tx, rx) = mpsc::channel(32);
 
         (
             Self {
-                build_count: Arc::new(AtomicUsize::new(build_count)),
+                build_slots: Arc::new(Semaphore::new(build_count)),
                 waiting_queue: Arc::new(Mutex::new(VecDeque::new())),
                 waiting_set: Arc::new(Mutex::new(HashSet::new())),
                 receive_channel: rx,
                 pg_pool,
                 config,
+                build_logs,
             },
             tx,
         )
@@ -96,6 +117,9 @@ pub async fn trigger_build(
         repo,
         container_src,
         container_name,
+        branch: _,
+        commit_sha: _,
+        log_state,
         created_at: _,
     }: BuildItem,
     pool: PgPool,
@@ -149,10 +173,10 @@ pub async fn trigger_build(
         }),
     }?;
 
-    if let Err(err) = sqlx::query!(
-        "UPDATE builds set status = 'building' where id = $1",
-        build_id
+    if let Err(err) = sqlx::query(
+        "UPDATE builds SET status = 'building', updated_at = now() WHERE id = $1"
     )
+    .bind(build_id)
     .execute(&pool)
     .await
     {
@@ -161,17 +185,27 @@ pub async fn trigger_build(
             inner_error: Some(Box::new(err)),
         });
     }
+    log_state.status("building").await;
 
     // TODO: Differentiate types of errors returned by build_docker (ex: ImageBuildError, NetworkCreateError, ContainerAttachError)
     let DockerContainer {
         ip, port, ..
-    } = match build_docker(&owner, &repo, &container_name, &container_src, pool.clone(), config).await {
+    } = match build_docker(
+        &owner,
+        &repo,
+        &container_name,
+        &container_src,
+        pool.clone(),
+        config,
+        log_state.clone(),
+    ).await {
         Ok(result) => {
-            if let Err(err) = sqlx::query!(
-                "UPDATE builds SET status = 'successful', log = $1 WHERE id = $2",
-                result.build_log,
-                build_id
+            let (final_log, _, _, _) = log_state.snapshot().await;
+            if let Err(err) = sqlx::query(
+                "UPDATE builds SET status = 'successful', log = $1, updated_at = now(), finished_at = now() WHERE id = $2"
             )
+            .bind(final_log)
+            .bind(build_id)
             .execute(&pool)
             .await
             {
@@ -184,11 +218,14 @@ pub async fn trigger_build(
             Ok(result)
         }
         Err(err) => {
-            if let Err(err) = sqlx::query!(
-                "UPDATE builds SET status = 'failed', log = $1 WHERE id = $2",
-                err.to_string(),
-                build_id
+            let error_message = format!("Build failed: {err}\n");
+            log_state.append(&error_message).await;
+            let (final_log, _, _, _) = log_state.snapshot().await;
+            if let Err(err) = sqlx::query(
+                "UPDATE builds SET status = 'failed', log = $1, updated_at = now(), finished_at = now() WHERE id = $2"
             )
+            .bind(final_log)
+            .bind(build_id)
             .execute(&pool)
             .await
             {
@@ -253,9 +290,10 @@ pub async fn trigger_build(
 pub async fn process_task_poll(
     waiting_queue: ConcurrentMutex<VecDeque<BuildItem>>,
     waiting_set: ConcurrentMutex<HashSet<String>>,
-    build_count: Arc<AtomicUsize>,
+    build_slots: Arc<Semaphore>,
     pool: PgPool,
     config: Settings,
+    build_logs: BuildLogRegistry,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut last_metrics_log = SystemTime::now();
     
@@ -263,19 +301,27 @@ pub async fn process_task_poll(
         let mut waiting_queue = waiting_queue.lock().await;
         let mut waiting_set = waiting_set.lock().await;
 
-        let current_build_count = build_count.load(Ordering::SeqCst);
+        let available_slots = build_slots.available_permits();
         let queue_len = waiting_queue.len();
         
         // Log metrics every 30 seconds
         if last_metrics_log.elapsed().unwrap_or(Duration::ZERO) > Duration::from_secs(30) {
             tracing::info!(
                 "BUILD_QUEUE_METRICS: available_slots={}, queue_length={}, waiting_set_size={}", 
-                current_build_count, queue_len, waiting_set.len()
+                available_slots, queue_len, waiting_set.len()
             );
             last_metrics_log = SystemTime::now();
         }
 
-        if current_build_count > 0 && queue_len > 0 {
+        if available_slots > 0 && queue_len > 0 {
+            let permit = match build_slots.clone().try_acquire_owned() {
+                Ok(permit) => permit,
+                Err(_) => {
+                    drop(waiting_queue);
+                    drop(waiting_set);
+                    continue;
+                }
+            };
             let build_item = match waiting_queue.pop_front() {
                 Some(build_item) => build_item,
                 None => {
@@ -295,40 +341,64 @@ pub async fn process_task_poll(
             );
             
             waiting_set.remove(&build_item.container_name);
+            build_item.log_state.queue_position(None).await;
+            refresh_queue_positions(&waiting_queue).await;
             drop(waiting_queue);
             drop(waiting_set);
 
             {
-                let build_count = Arc::clone(&build_count);
+                let build_slots = Arc::clone(&build_slots);
                 let pool = pool.clone();
                 let config = config.clone();
                 let build_id = build_item.build_id;
                 let container_name = build_item.container_name.clone();
+                let log_state = build_item.log_state.clone();
+                let build_logs = build_logs.clone();
 
-                build_count.fetch_sub(1, Ordering::SeqCst);
+                // The owned permit is released automatically if the task finishes,
+                // times out, is aborted, or panics, so queue slots cannot leak.
                 tokio::spawn(async move {
                     let build_start = SystemTime::now();
                     
                     // Add timeout wrapper around trigger_build
                     let build_timeout = Duration::from_secs(config.build.timeout as u64 / 1000); // Convert from ms
-                    let build_result = timeout(build_timeout, trigger_build(build_item, pool.clone(), &config)).await;
+                    let build_result = AssertUnwindSafe(timeout(
+                        build_timeout,
+                        trigger_build(build_item, pool.clone(), &config),
+                    ))
+                    .catch_unwind()
+                    .await;
                     
                     match build_result {
-                        Ok(Ok(subdomain)) => {
+                        Ok(Ok(Ok(subdomain))) => {
+                            log_state.status("successful").await;
                             let build_duration = build_start.elapsed().unwrap_or(Duration::ZERO);
                             tracing::info!(
                                 "BUILD_SUCCESS: build_id={}, container={}, subdomain={}, duration={}ms", 
                                 build_id, container_name, subdomain, build_duration.as_millis()
                             );
                         },
-                        Ok(Err(BuildError { message, inner_error })) => {
+                        Ok(Ok(Err(BuildError { message, inner_error }))) => {
+                            log_state.append(&format!("Build failed: {message}\n")).await;
+                            let (final_log, _, _, _) = log_state.snapshot().await;
+                            if let Err(err) = sqlx::query(
+                                "UPDATE builds SET status = 'failed', log = $1, updated_at = now(), finished_at = now() WHERE id = $2"
+                            )
+                            .bind(final_log)
+                            .bind(build_id)
+                            .execute(&pool)
+                            .await
+                            {
+                                tracing::error!(?err, %build_id, "Failed to persist failed build log");
+                            }
+                            log_state.status("failed").await;
                             let build_duration = build_start.elapsed().unwrap_or(Duration::ZERO);
                             tracing::error!(
                                 "BUILD_ERROR: build_id={}, container={}, duration={}ms, error={}, inner_error={:?}", 
                                 build_id, container_name, build_duration.as_millis(), message, inner_error
                             );
                         },
-                        Err(_timeout_error) => {
+                        Ok(Err(_timeout_error)) => {
                             tracing::error!(
                                 "BUILD_TIMEOUT: build_id={}, container={}, timeout_seconds={}", 
                                 build_id, container_name, build_timeout.as_secs()
@@ -336,21 +406,52 @@ pub async fn process_task_poll(
                             
                             // Mark build as failed due to timeout
                             let timeout_msg = format!("Build timeout after {} seconds", build_timeout.as_secs());
-                            if let Err(err) = sqlx::query!(
-                                "UPDATE builds SET status = 'failed', log = $1 WHERE id = $2",
-                                timeout_msg,
-                                build_id
+                            log_state.append(&format!("{timeout_msg}\n")).await;
+                            let (final_log, _, _, _) = log_state.snapshot().await;
+                            if let Err(err) = sqlx::query(
+                                "UPDATE builds SET status = 'failed', log = $1, updated_at = now(), finished_at = now() WHERE id = $2"
                             )
+                            .bind(final_log)
+                            .bind(build_id)
                             .execute(&pool)
                             .await
                             {
                                 tracing::error!("Failed to update timeout build status: {:?}", err);
                             }
+                            log_state.status("failed").await;
+                        },
+                        Err(panic) => {
+                            let panic_message = panic
+                                .downcast_ref::<&str>()
+                                .map(|message| (*message).to_string())
+                                .or_else(|| panic.downcast_ref::<String>().cloned())
+                                .unwrap_or_else(|| "unknown panic".to_string());
+                            let message = format!("Build aborted by an internal error: {panic_message}\n");
+                            log_state.append(&message).await;
+                            let (final_log, _, _, _) = log_state.snapshot().await;
+                            if let Err(err) = sqlx::query(
+                                "UPDATE builds SET status = 'failed', log = $1, updated_at = now(), finished_at = now() WHERE id = $2"
+                            )
+                            .bind(final_log)
+                            .bind(build_id)
+                            .execute(&pool)
+                            .await
+                            {
+                                tracing::error!(?err, %build_id, "Failed to persist panicked build");
+                            }
+                            log_state.status("failed").await;
+                            tracing::error!(%build_id, %container_name, %panic_message, "BUILD_PANIC");
                         }
                     }
 
-                    let final_count = build_count.fetch_add(1, Ordering::SeqCst) + 1;
-                    tracing::debug!("BUILD_SLOT_RELEASED: build_id={}, available_slots={}", build_id, final_count);
+                    build_logs.write().await.remove(&build_id);
+
+                    drop(permit);
+                    tracing::debug!(
+                        "BUILD_SLOT_RELEASED: build_id={}, available_slots={}",
+                        build_id,
+                        build_slots.available_permits()
+                    );
                 });
             }
         } else {
@@ -367,6 +468,7 @@ pub async fn process_task_enqueue(
     waiting_set: ConcurrentMutex<HashSet<String>>,
     pool: PgPool,
     mut receive_channel: Receiver<BuildQueueItem>,
+    build_logs: BuildLogRegistry,
 ) {
     while let Some(message) = receive_channel.recv().await {
         let BuildQueueItem {
@@ -374,6 +476,8 @@ pub async fn process_task_enqueue(
             container_src,
             owner,
             repo,
+            branch,
+            commit_sha,
         } = message;
         let mut waiting_queue = waiting_queue.lock().await;
         let mut waiting_set = waiting_set.lock().await;
@@ -409,18 +513,24 @@ pub async fn process_task_enqueue(
         }
 
         let build_id = Uuid::from(Ulid::new());
-        match sqlx::query!(
-            r#"INSERT INTO builds (id, project_id)
-               VALUES ($1, $2)
-            "#,
-            build_id,
-            project.id,
+        let log_state = BuildLogState::new();
+        log_state.status("pending").await;
+        build_logs.write().await.insert(build_id, log_state.clone());
+        match sqlx::query(
+            r#"INSERT INTO builds (id, project_id, branch, commit_sha)
+               VALUES ($1, $2, $3, $4)
+            "#
         )
+        .bind(build_id)
+        .bind(project.id)
+        .bind(&branch)
+        .bind(&commit_sha)
         .fetch_optional(&pool)
         .await
         {
             Ok(build_details) => build_details,
             Err(err) => {
+                build_logs.write().await.remove(&build_id);
                 tracing::error!(%err, "Can't create build: Failed to query database");
                 continue;
             }
@@ -432,16 +542,20 @@ pub async fn process_task_enqueue(
             container_src,
             owner: owner.clone(),
             repo: repo.clone(),
+            branch: branch.clone(),
+            commit_sha: commit_sha.clone(),
+            log_state,
             created_at: SystemTime::now(),
         };
         
         tracing::info!(
-            "BUILD_ENQUEUED: build_id={}, container={}, owner={}, repo={}, queue_position={}", 
-            build_id, container_name, owner, repo, waiting_queue.len()
+            "BUILD_ENQUEUED: build_id={}, container={}, owner={}, repo={}, branch={}, commit={}, queue_position={}",
+            build_id, container_name, owner, repo, branch, commit_sha, waiting_queue.len()
         );
 
         waiting_set.insert(build_item.container_name.clone());
         waiting_queue.push_back(build_item);
+        refresh_queue_positions(&waiting_queue).await;
     }
 }
 
@@ -451,16 +565,18 @@ pub async fn build_queue_handler(build_queue: BuildQueue) {
         let waiting_set = Arc::clone(&build_queue.waiting_set);
         let pool = build_queue.pg_pool.clone();
         let config = build_queue.config.clone();
-        let build_count = Arc::clone(&build_queue.build_count);
+        let build_slots = Arc::clone(&build_queue.build_slots);
+        let build_logs = build_queue.build_logs.clone();
 
         tokio::spawn(async move {
-            let _ = process_task_poll(waiting_queue, waiting_set, build_count, pool, config).await;
+            let _ = process_task_poll(waiting_queue, waiting_set, build_slots, pool, config, build_logs).await;
         });
     }
     {
         let waiting_queue = Arc::clone(&build_queue.waiting_queue);
         let waiting_set = Arc::clone(&build_queue.waiting_set);
         let pool = build_queue.pg_pool.clone();
+        let build_logs = build_queue.build_logs.clone();
 
         tokio::spawn(async move {
             process_task_enqueue(
@@ -468,6 +584,7 @@ pub async fn build_queue_handler(build_queue: BuildQueue) {
                 waiting_set,
                 pool,
                 build_queue.receive_channel,
+                build_logs,
             )
             .await;
         });

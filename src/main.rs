@@ -1,5 +1,6 @@
 use hyper::{client::HttpConnector, Body};
 use pemasak_infra::{
+    build_logs,
     configuration,
     queue::{build_queue_handler, BuildQueue},
     startup, telemetry,
@@ -89,7 +90,13 @@ async fn main() {
         }
     }
 
-    let (build_queue, build_channel) = BuildQueue::new(config.build.max, pool.clone(), config.clone());
+    let build_logs = build_logs::new_registry();
+    let (build_queue, build_channel) = BuildQueue::new(
+        config.build.max,
+        pool.clone(),
+        config.clone(),
+        build_logs.clone(),
+    );
 
     tokio::spawn(async move {
         build_queue_handler(build_queue).await;
@@ -102,6 +109,7 @@ async fn main() {
         client: Client::new(),
         domain: config.domain(),
         build_channel,
+        build_logs,
         pool,
         secure: config.application.secure,
     };

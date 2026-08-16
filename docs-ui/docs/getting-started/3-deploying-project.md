@@ -27,7 +27,7 @@ As this is an experimental service, we recommend you to clone your project to a 
 
    :::tip Master Branch
 
-   In the command, we set `git branch -M master`. This will replace the `main` branch with `master` as this is the default that we use on our PWS, hence `git push pws master`
+   The documentation uses `master` as the standard deployment branch. PWS also supports other branch names when needed.
 
    :::
 
@@ -50,7 +50,7 @@ As this is an experimental service, we recommend you to clone your project to a 
 
 :::tip Update Changes
 
-   If you want to do changes, after you have done `git remote add` and `git branch -M master` step, you can simply commit your changes and push your update directly.
+   After adding the `pws` remote and setting the branch to `master`, commit and push your changes.
    ```
    git add .
    git commit -m "{{ COMMIT MESSAGE }}"
