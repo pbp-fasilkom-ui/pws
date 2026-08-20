@@ -58,10 +58,10 @@ services:
       - "traefik.http.routers.pws-http.middlewares=pws-https-redirect"
       - "traefik.http.middlewares.pws-https-redirect.redirectscheme.scheme=https"
       - "traefik.http.middlewares.pws-https-redirect.redirectscheme.permanent=true"
-      - "traefik.http.routers.pws.rule=Host(`${DOMAIN:-localhost}`) || Host(`www.${DOMAIN:-localhost}`)"
-      - "traefik.http.routers.pws.entrypoints=websecure"
-      - "traefik.http.routers.pws.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.pws.service=pws"
+      - "traefik.http.routers.pws-app.rule=Host(`${DOMAIN:-localhost}`) || Host(`www.${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.pws-app.entrypoints=websecure"
+      - "traefik.http.routers.pws-app.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.pws-app.service=pws"
       - "traefik.http.services.pws.loadbalancer.server.port=8080"
 
   # Skip monitoring stack for Windows (Optional)
