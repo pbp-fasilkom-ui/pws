@@ -18,14 +18,18 @@ jobs:
   deploy:
     name: Deploy to production
     if: >-
-      vars.DEPLOY_ENABLED == 'true' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/master') ||
       (github.event_name == 'workflow_dispatch' && inputs.deploy == true))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: production
     steps:
+      - name: Report deployment disabled
+        if: vars.DEPLOY_ENABLED != 'true'
+        run: echo "DEPLOY_ENABLED is not true; deployment skipped."
+
       - name: Rebuild and restart server on VM
+        if: vars.DEPLOY_ENABLED == 'true'
         uses: appleboy/ssh-action@v1.2.2
         env:
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
