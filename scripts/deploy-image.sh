@@ -24,13 +24,22 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repository_dir="$(cd -- "$script_dir/.." && pwd)"
 cd "$repository_dir"
 
-test -f docker-compose.yml
-test -f .env
+current_branch="$(git branch --show-current)"
+if [[ "$current_branch" != "master" ]]; then
+  echo "Deployment stopped: expected the deployment checkout to be on master (found $current_branch)." >&2
+  exit 1
+fi
 
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "Deployment stopped: the deployment checkout has local changes." >&2
   exit 1
 fi
+
+echo "Updating deployment checkout"
+git pull --ff-only origin master
+
+test -f docker-compose.yml
+test -f .env
 
 echo "Pulling $image_ref"
 docker pull "$image_ref"

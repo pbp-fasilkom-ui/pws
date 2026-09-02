@@ -91,15 +91,14 @@ The `CI` GitHub Actions workflow runs backend checks, UI and documentation build
 
 The `CD` workflow is manual-only. It verifies that a requested commit-tagged image exists and prints the command for deploying it. It does not use a self-hosted runner or connect to the production VM.
 
-For manual deployment, make sure the production VM has Docker Compose, `curl`, and this repository checked out. Update the checkout and run the deployment script:
+For manual deployment, make sure the production VM has Docker Compose, `curl`, and this repository checked out on the `master` branch with no local changes. The deployment script updates the checkout before deploying:
 
 ```bash
 cd /home/admin/pws
-git pull --ff-only origin master
 ./scripts/deploy-image.sh <commit-sha>
 ```
 
-The script pulls the immutable GHCR image, recreates only the `server` service, verifies `/health`, and attempts to restore the previous image if the health check fails. If the GHCR package is private, log in to GHCR on the VM with a read-only package token before running the script. The VM does not need the GitHub Actions SSH secrets for this deployment flow.
+The script verifies the checkout, fast-forward pulls `origin/master`, pulls the immutable GHCR image, recreates only the `server` service, verifies `/health`, and attempts to restore the previous image if the health check fails. If the GHCR package is private, log in to GHCR on the VM with a read-only package token before running the script. The VM does not need the GitHub Actions SSH secrets for this deployment flow.
 
 ### Setting up the docusaurus
 
