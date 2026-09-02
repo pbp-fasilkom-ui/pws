@@ -35,6 +35,7 @@ services:
     container_name: server-pemasak
     restart: always
     env_file: .env
+    image: ${PWS_IMAGE:-ghcr.io/pbp-fasilkom-ui/pws:latest}
     build:
       context: .
       dockerfile: Dockerfile
