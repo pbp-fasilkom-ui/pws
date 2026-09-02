@@ -1,12 +1,25 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { FileTextIcon, QuestionMarkCircledIcon } from "@radix-ui/react-icons";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { FileTextIcon, QuestionMarkCircledIcon, ReloadIcon } from "@radix-ui/react-icons";
 import {
   Link,
   Outlet,
 } from "@tanstack/react-router";
-import { createFileRoute, useParams, redirect } from '@tanstack/react-router';
+import { createFileRoute, useNavigate, useParams, redirect } from '@tanstack/react-router';
 import useSWR from "swr";
+import { useSWRConfig } from "swr";
+import toast from "react-hot-toast";
+import { useState } from "react";
 
 async function checkProjectAccess(owner: string, project: string) {
   try {
@@ -48,17 +61,61 @@ const apiFetcher = (input: URL | RequestInfo, options?: RequestInit) => {
 function ProjectDashboard() {
   // @ts-ignore
   const { owner, project } = useParams({ strict: false });
+  const navigate = useNavigate();
+  const { mutate } = useSWRConfig();
+  const [redeployOpen, setRedeployOpen] = useState(false);
+  const [isRedeploying, setIsRedeploying] = useState(false);
   const apiUrl = new URL(import.meta.env.VITE_API_URL);
   const domain = apiUrl.hostname;
+  const buildsUrl = `${import.meta.env.VITE_API_URL}/project/${owner}/${project}/builds/`;
 
-  const { data: builds, isLoading } = useSWR(
-    `${import.meta.env.VITE_API_URL}/project/${owner}/${project}/builds/`,
-    apiFetcher,
-  );
+  const { data: builds, isLoading } = useSWR(buildsUrl, apiFetcher);
   const hasSuccessfulBuild = builds?.data?.some(
     (b: any) => b.status === "SUCCESSFUL",
   );
   const hasAnyBuild = builds?.data?.length > 0;
+  const hasActiveBuild = builds?.data?.some(
+    (b: any) => b.status === "PENDING" || b.status === "BUILDING",
+  );
+  const redeployableBuild = builds?.data?.find(
+    (b: any) => b.branch && b.commit_sha,
+  );
+
+  async function handleRedeploy() {
+    setIsRedeploying(true);
+
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_API_URL}/project/${owner}/${project}/redeploy`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to queue redeploy");
+      }
+
+      setRedeployOpen(false);
+      await mutate(buildsUrl);
+      toast.success("Redeploy queued successfully", {
+        position: "bottom-right",
+      });
+      navigate({
+        to: "/project/$owner/$project/build/$buildId",
+        params: { owner, project, buildId: data.build_id },
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to queue redeploy", {
+        position: "bottom-right",
+      });
+    } finally {
+      setIsRedeploying(false);
+    }
+  }
 
   return (
     <div className="relative min-h-full w-full">
@@ -273,6 +330,41 @@ function ProjectDashboard() {
                 Settings
               </Link>
             </div>
+
+            <Dialog open={redeployOpen} onOpenChange={setRedeployOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="w-full text-foreground lg:w-auto"
+                  disabled={!redeployableBuild || hasActiveBuild || isRedeploying}
+                >
+                  <ReloadIcon className="mr-2" />
+                  {hasActiveBuild ? "Build in progress" : "Redeploy"}
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="text-white">
+                <DialogHeader>
+                  <DialogTitle>Redeploy latest revision?</DialogTitle>
+                  <DialogDescription>
+                    This will rebuild the latest recorded revision on the PWS build queue.
+                    {redeployableBuild && (
+                      <span className="mt-2 block font-mono text-xs">
+                        {redeployableBuild.branch} · {redeployableBuild.commit_sha.slice(0, 7)}
+                      </span>
+                    )}
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <DialogClose asChild>
+                    <Button variant="outline">Cancel</Button>
+                  </DialogClose>
+                  <Button onClick={handleRedeploy} disabled={isRedeploying}>
+                    {isRedeploying ? "Queueing..." : "Redeploy"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
 
             <a
               target="_blank"

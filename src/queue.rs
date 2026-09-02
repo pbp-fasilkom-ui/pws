@@ -11,7 +11,7 @@ use futures_util::FutureExt;
 use sqlx::PgPool;
 use thiserror::Error;
 use tokio::sync::mpsc::{self, Receiver, Sender};
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{oneshot, Mutex, Semaphore};
 use tokio::time::{sleep, timeout};
 use ulid::Ulid;
 use uuid::Uuid;
@@ -39,11 +39,12 @@ pub struct BuildError {
 #[derive(Debug)]
 pub struct BuildQueueItem {
     pub container_name: String,
-    pub container_src: String,
+    pub container_src: Option<String>,
     pub owner: String,
     pub repo: String,
     pub branch: String,
     pub commit_sha: String,
+    pub response: Option<oneshot::Sender<Result<Uuid, String>>>,
 }
 
 #[derive(Debug)]
@@ -477,6 +478,7 @@ pub async fn process_task_enqueue(
     waiting_queue: ConcurrentMutex<VecDeque<BuildItem>>,
     waiting_set: ConcurrentMutex<HashSet<String>>,
     pool: PgPool,
+    base: String,
     mut receive_channel: Receiver<BuildQueueItem>,
     build_logs: BuildLogRegistry,
 ) {
@@ -488,6 +490,7 @@ pub async fn process_task_enqueue(
             repo,
             branch,
             commit_sha,
+            response,
         } = message;
         let mut waiting_queue = waiting_queue.lock().await;
         let mut waiting_set = waiting_set.lock().await;
@@ -509,18 +512,103 @@ pub async fn process_task_enqueue(
                 Some(project) => project,
                 None => {
                     tracing::error!("Project not found with owner {} and repo {}", owner, repo);
+                    if let Some(response) = response {
+                        let _ = response.send(Err("Project not found".to_string()));
+                    }
                     continue;
                 }
             },
             Err(err) => {
                 tracing::error!(%err, "Can't query project: Failed to query database");
+                if let Some(response) = response {
+                    let _ = response.send(Err("Failed to query project".to_string()));
+                }
                 continue;
             }
         };
 
         if waiting_set.contains(&container_name) {
+            if let Some(response) = response {
+                let _ = response.send(Err(
+                    "A build for this project is already waiting in the queue".to_string(),
+                ));
+            }
             continue;
         }
+
+        if response.is_some() {
+            let active_build = match sqlx::query_as::<_, (Uuid,)>(
+                r#"SELECT id
+                   FROM builds
+                   WHERE project_id = $1
+                     AND status IN ('pending', 'building')
+                   ORDER BY created_at DESC
+                   LIMIT 1"#,
+            )
+            .bind(project.id)
+            .fetch_optional(&pool)
+            .await
+            {
+                Ok(active_build) => active_build,
+                Err(err) => {
+                    tracing::error!(%err, "Can't check active project builds");
+                    if let Some(response) = response {
+                        let _ = response.send(Err("Failed to check active builds".to_string()));
+                    }
+                    continue;
+                }
+            };
+
+            if let Some(active_build) = active_build {
+                let message = format!("A build is already in progress ({})", active_build.0);
+                tracing::info!(project = %project.id, %message, "Skipping duplicate build");
+                if let Some(response) = response {
+                    let _ = response.send(Err(message));
+                }
+                continue;
+            }
+        }
+
+        let (container_src, commit_sha) = match container_src {
+            Some(container_src) => (container_src, commit_sha),
+            None => {
+                let clone_base = base.clone();
+                let clone_owner = owner.clone();
+                let clone_repo = repo.clone();
+                let clone_branch = branch.clone();
+                let clone_commit = commit_sha.clone();
+
+                match tokio::task::spawn_blocking(move || {
+                    crate::git::prepare_build_source(
+                        &clone_base,
+                        &clone_owner,
+                        &clone_repo,
+                        &clone_branch,
+                        Some(&clone_commit),
+                    )
+                })
+                .await
+                {
+                    Ok(Ok(result)) => result,
+                    Ok(Err(err)) => {
+                        tracing::error!(%err, "Can't prepare redeploy source");
+                        if let Some(response) = response {
+                            let _ =
+                                response.send(Err("Failed to prepare redeploy source".to_string()));
+                        }
+                        continue;
+                    }
+                    Err(err) => {
+                        tracing::error!(%err, "Redeploy source preparation task failed");
+                        if let Some(response) = response {
+                            let _ =
+                                response.send(Err("Failed to prepare redeploy source".to_string()));
+                        }
+                        continue;
+                    }
+                }
+            }
+        };
 
         let build_id = Uuid::from(Ulid::new());
         let log_state = BuildLogState::new();
@@ -542,6 +630,9 @@ pub async fn process_task_enqueue(
             Err(err) => {
                 build_logs.write().await.remove(&build_id);
                 tracing::error!(%err, "Can't create build: Failed to query database");
+                if let Some(response) = response {
+                    let _ = response.send(Err("Failed to create build".to_string()));
+                }
                 continue;
             }
         };
@@ -566,6 +657,10 @@ pub async fn process_task_enqueue(
         waiting_set.insert(build_item.container_name.clone());
         waiting_queue.push_back(build_item);
         refresh_queue_positions(&waiting_queue).await;
+
+        if let Some(response) = response {
+            let _ = response.send(Ok(build_id));
+        }
     }
 }
 
@@ -594,6 +689,7 @@ pub async fn build_queue_handler(build_queue: BuildQueue) {
         let waiting_queue = Arc::clone(&build_queue.waiting_queue);
         let waiting_set = Arc::clone(&build_queue.waiting_set);
         let pool = build_queue.pg_pool.clone();
+        let base = build_queue.config.git.base.clone();
         let build_logs = build_queue.build_logs.clone();
 
         tokio::spawn(async move {
@@ -601,6 +697,7 @@ pub async fn build_queue_handler(build_queue: BuildQueue) {
                 waiting_queue,
                 waiting_set,
                 pool,
+                base,
                 build_queue.receive_channel,
                 build_logs,
             )

@@ -18,7 +18,6 @@ use axum::{
     Router,
 };
 use axum_extra::routing::RouterExt;
-use git2::Repository;
 use http_body::combinators::UnsyncBoxBody;
 use hyper::{
     body::Bytes, http::response::Builder as ResponseBuilder, Body, HeaderMap, Request, StatusCode,
@@ -383,101 +382,79 @@ pub async fn receive_pack_rpc(
         return res;
     };
 
-    let container_src = format!("{path}/clone");
     let container_name = format!("{owner}-{}", repo.trim_end_matches(".git")).replace('.', "-");
 
-    // Resolve the branch that was actually pushed instead of assuming the bare
-    // repository's HEAD points to master.
-    let bare_repo_path = if repo.ends_with(".git") {
-        format!("{base}/{owner}/{repo}")
-    } else {
-        format!("{base}/{owner}/{repo}.git")
-    };
-
-    let head_commit_id = match git2::Repository::open_bare(&bare_repo_path) {
-        Ok(bare_repo) => {
-            let branch_ref = format!("refs/heads/{deploy_branch}");
-            match bare_repo.revparse_single(&branch_ref) {
-                Ok(obj) => {
-                    let commit_id = obj.id();
-                    tracing::info!(branch = %deploy_branch, "Got pushed branch commit from bare repo: {}", commit_id);
-                    commit_id
-                }
-                Err(e) => {
-                    tracing::error!("Failed to resolve HEAD in bare repo: {}", e);
-                    return Response::builder()
-                        .status(StatusCode::INTERNAL_SERVER_ERROR)
-                        .body(Body::empty())
-                        .unwrap();
-                }
+    let (container_src, head_commit_id) =
+        match prepare_build_source(&base, &owner, &repo, &deploy_branch, None) {
+            Ok(result) => result,
+            Err(err) => {
+                tracing::error!(%err, "Failed to prepare pushed source");
+                return Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .body(Body::empty())
+                    .unwrap();
             }
-        }
-        Err(e) => {
-            tracing::error!("Failed to open bare repo: {}", e);
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::empty())
-                .unwrap();
-        }
-    };
-
-    // Always fresh clone to guarantee up-to-date state
-    // Delete existing working directory if it exists
-    if std::path::Path::new(&container_src).exists() {
-        tracing::info!("Removing existing working directory: {}", container_src);
-        if let Err(e) = std::fs::remove_dir_all(&container_src) {
-            tracing::error!("Failed to remove existing directory: {}", e);
-        }
-    }
-
-    // Fresh clone from bare repo - always up-to-date
-    tracing::info!("Creating fresh clone from bare repo to: {}", container_src);
-    let mut repo_builder = git2::build::RepoBuilder::new();
-    repo_builder.branch(&deploy_branch);
-    match repo_builder.clone(&path, std::path::Path::new(&container_src)) {
-        Ok(cloned_repo) => {
-            tracing::info!("Fresh clone completed, now setting to exact HEAD commit");
-
-            // Set to exact same commit as HEAD in bare repo (matching tree view)
-            if let Err(e) = cloned_repo.set_head_detached(head_commit_id) {
-                tracing::error!("Failed to set cloned repo HEAD: {}", e);
-            } else {
-                // Force checkout to make working directory match
-                if let Err(e) =
-                    cloned_repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))
-                {
-                    tracing::error!("Failed to checkout cloned repo HEAD: {}", e);
-                } else {
-                    tracing::info!(
-                        "Successfully set working directory to commit: {}",
-                        head_commit_id
-                    );
-                }
-            }
-        }
-        Err(e) => {
-            tracing::error!("Fresh clone failed: {}", e);
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Body::empty())
-                .unwrap();
-        }
-    }
+        };
 
     tokio::spawn(async move {
         build_channel
             .send(BuildQueueItem {
                 container_name,
-                container_src,
+                container_src: Some(container_src),
                 owner,
                 repo,
                 branch: deploy_branch,
-                commit_sha: head_commit_id.to_string(),
+                commit_sha: head_commit_id,
+                response: None,
             })
             .await
     });
 
     res
+}
+
+/// Clone a project repository into the build workspace and detach it at the
+/// requested commit. When no commit is supplied, the tip of `branch` is used.
+pub fn prepare_build_source(
+    base: &str,
+    owner: &str,
+    repo: &str,
+    branch: &str,
+    expected_commit: Option<&str>,
+) -> Result<(String, String)> {
+    let path = if repo.ends_with(".git") {
+        format!("{base}/{owner}/{repo}")
+    } else {
+        format!("{base}/{owner}/{repo}.git")
+    };
+    let container_src = format!("{path}/clone");
+
+    let bare_repo = git2::Repository::open_bare(&path)?;
+    let commit_id = match expected_commit {
+        Some(commit) => {
+            let commit_id = git2::Oid::from_str(commit)?;
+            bare_repo.find_commit(commit_id)?;
+            commit_id
+        }
+        None => bare_repo
+            .revparse_single(&format!("refs/heads/{branch}"))?
+            .id(),
+    };
+
+    if std::path::Path::new(&container_src).exists() {
+        tracing::info!("Removing existing working directory: {}", container_src);
+        std::fs::remove_dir_all(&container_src)?;
+    }
+
+    tracing::info!("Creating fresh clone from bare repo to: {}", container_src);
+    let mut repo_builder = git2::build::RepoBuilder::new();
+    repo_builder.branch(branch);
+    let cloned_repo = repo_builder.clone(&path, std::path::Path::new(&container_src))?;
+    cloned_repo.set_head_detached(commit_id)?;
+    cloned_repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))?;
+
+    tracing::info!(branch, commit = %commit_id, "Prepared build source");
+    Ok((container_src, commit_id.to_string()))
 }
 
 fn receive_pack_updated_branches(headers: &HeaderMap, body: &Bytes) -> Vec<String> {
