@@ -18,7 +18,7 @@ impl DjangoDockerfile {
         let mut dockerfile = String::from(
             r#"
 # Multi-stage build for smaller image
-FROM python:3.11-alpine AS builder
+FROM python:3.13-alpine AS builder
 
 WORKDIR /app
 
@@ -30,12 +30,12 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Runtime stage
-FROM python:3.11-alpine AS runtime
+FROM python:3.13-alpine AS runtime
 
 WORKDIR /app
 
 # Copy Python packages from builder
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy app
