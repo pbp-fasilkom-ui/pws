@@ -69,11 +69,11 @@ jobs:
         env:
           IMAGE: ${{ env.IMAGE_NAME }}:latest
           REGISTRY_TOKEN: ${{ secrets.GHCR_DEPLOY_TOKEN }}
-          REGISTRY_USER: ${{ secrets.GHCR_DEPLOY_USER }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          REGISTRY_USER: ${{ vars.GHCR_DEPLOY_USER }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
         with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
+          host: ${{ vars.DEPLOY_HOST }}
+          username: ${{ vars.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           envs: IMAGE,REGISTRY_TOKEN,REGISTRY_USER,DEPLOY_PATH
           script_stop: true
