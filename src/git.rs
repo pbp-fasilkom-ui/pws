@@ -57,9 +57,7 @@ async fn basic_auth<B>(
         .unwrap();
 
     let repo = match repo.ends_with(".git") {
-        true => {
-            repo.split(".git").next().unwrap_or("")
-        }.to_owned(),
+        true => { repo.split(".git").next().unwrap_or("") }.to_owned(),
         false => format!("{repo}"),
     };
 
@@ -97,21 +95,36 @@ async fn basic_auth<B>(
                 Err(_) => return Err(auth_err),
             };
 
-            tracing::debug!("AUTH_DEBUG: Auth attempt - owner: {}, repo: {}, token: {}", owner_name, repo, token);
+            tracing::debug!(
+                "AUTH_DEBUG: Auth attempt - owner: {}, repo: {}, token: {}",
+                owner_name,
+                repo,
+                token
+            );
             tracing::debug!("AUTH_DEBUG: Found {} tokens in database", tokens.len());
-            
+
             let authenticated = tokens.iter().any(|rec| {
-                tracing::info!("Checking token - project: {}, owner: {}, stored_token: {}", rec.project_name, rec.project_owner, rec.token);
-                
+                tracing::info!(
+                    "Checking token - project: {}, owner: {}, stored_token: {}",
+                    rec.project_name,
+                    rec.project_owner,
+                    rec.token
+                );
+
                 // Use plain text comparison instead of argon2 hashing
                 let token_match = rec.token == token;
-                let authorization_match = rec.project_name == repo && rec.project_owner == owner_name;
-                
-                tracing::info!("Token match: {}, Authorization match: {}", token_match, authorization_match);
+                let authorization_match =
+                    rec.project_name == repo && rec.project_owner == owner_name;
+
+                tracing::info!(
+                    "Token match: {}, Authorization match: {}",
+                    token_match,
+                    authorization_match
+                );
 
                 token_match && authorization_match
             });
-            
+
             if !authenticated {
                 return Err(auth_failed);
             }
@@ -380,7 +393,7 @@ pub async fn receive_pack_rpc(
     } else {
         format!("{base}/{owner}/{repo}.git")
     };
-    
+
     let head_commit_id = match git2::Repository::open_bare(&bare_repo_path) {
         Ok(bare_repo) => {
             let branch_ref = format!("refs/heads/{deploy_branch}");
@@ -389,7 +402,7 @@ pub async fn receive_pack_rpc(
                     let commit_id = obj.id();
                     tracing::info!(branch = %deploy_branch, "Got pushed branch commit from bare repo: {}", commit_id);
                     commit_id
-                },
+                }
                 Err(e) => {
                     tracing::error!("Failed to resolve HEAD in bare repo: {}", e);
                     return Response::builder()
@@ -398,7 +411,7 @@ pub async fn receive_pack_rpc(
                         .unwrap();
                 }
             }
-        },
+        }
         Err(e) => {
             tracing::error!("Failed to open bare repo: {}", e);
             return Response::builder()
@@ -416,7 +429,7 @@ pub async fn receive_pack_rpc(
             tracing::error!("Failed to remove existing directory: {}", e);
         }
     }
-    
+
     // Fresh clone from bare repo - always up-to-date
     tracing::info!("Creating fresh clone from bare repo to: {}", container_src);
     let mut repo_builder = git2::build::RepoBuilder::new();
@@ -424,21 +437,24 @@ pub async fn receive_pack_rpc(
     match repo_builder.clone(&path, std::path::Path::new(&container_src)) {
         Ok(cloned_repo) => {
             tracing::info!("Fresh clone completed, now setting to exact HEAD commit");
-            
+
             // Set to exact same commit as HEAD in bare repo (matching tree view)
             if let Err(e) = cloned_repo.set_head_detached(head_commit_id) {
                 tracing::error!("Failed to set cloned repo HEAD: {}", e);
             } else {
                 // Force checkout to make working directory match
-                if let Err(e) = cloned_repo.checkout_head(Some(
-                    git2::build::CheckoutBuilder::default().force()
-                )) {
+                if let Err(e) =
+                    cloned_repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))
+                {
                     tracing::error!("Failed to checkout cloned repo HEAD: {}", e);
                 } else {
-                    tracing::info!("Successfully set working directory to commit: {}", head_commit_id);
+                    tracing::info!(
+                        "Successfully set working directory to commit: {}",
+                        head_commit_id
+                    );
                 }
             }
-        },
+        }
         Err(e) => {
             tracing::error!("Fresh clone failed: {}", e);
             return Response::builder()
@@ -447,7 +463,6 @@ pub async fn receive_pack_rpc(
                 .unwrap();
         }
     }
-
 
     tokio::spawn(async move {
         build_channel
@@ -467,7 +482,10 @@ pub async fn receive_pack_rpc(
 
 fn receive_pack_updated_branches(headers: &HeaderMap, body: &Bytes) -> Vec<String> {
     let decoded;
-    let body = match headers.get("Content-Encoding").and_then(|value| value.to_str().ok()) {
+    let body = match headers
+        .get("Content-Encoding")
+        .and_then(|value| value.to_str().ok())
+    {
         Some("gzip") => {
             let mut reader = flate2::read::GzDecoder::new(body.as_ref());
             let mut bytes = Vec::new();

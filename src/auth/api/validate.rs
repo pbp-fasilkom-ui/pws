@@ -1,10 +1,11 @@
-use axum::{
-    extract::State, response::Response
+use crate::{
+    auth::{Auth, ErrorResponse, RegisterUserErrorType, User},
+    startup::AppState,
 };
+use axum::{extract::State, response::Response};
 use hyper::{Body, StatusCode};
 use serde::Serialize;
 use uuid::Uuid;
-use crate::{startup::AppState, auth::{Auth, User, RegisterUserErrorType, ErrorResponse}};
 
 #[derive(Serialize, Debug)]
 pub struct ValidateAuthResponse {
@@ -22,7 +23,7 @@ pub async fn validate_auth(
         return Response::builder()
             .status(StatusCode::FORBIDDEN)
             .body(Body::empty())
-            .unwrap()
+            .unwrap();
     }
 
     let current_user = auth.current_user.unwrap();
@@ -32,7 +33,8 @@ pub async fn validate_auth(
             let json = serde_json::to_string(&ErrorResponse {
                 message: "User not found".to_string(),
                 error_type: RegisterUserErrorType::BadRequestError,
-            }).unwrap();
+            })
+            .unwrap();
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .header("Content-Type", "text/html")
@@ -44,13 +46,12 @@ pub async fn validate_auth(
     Response::builder()
         .status(StatusCode::OK)
         .body(Body::from(
-            serde_json::to_string(
-                &ValidateAuthResponse {
-                    id: user.id,
-                    username: user.username,
-                    name: user.name,
-                }
-            ).unwrap()
+            serde_json::to_string(&ValidateAuthResponse {
+                id: user.id,
+                username: user.username,
+                name: user.name,
+            })
+            .unwrap(),
         ))
         .unwrap()
 }

@@ -101,11 +101,19 @@ pub async fn get(
         );
     }
     if blob.content().contains(&0) {
-        return json_error(StatusCode::UNSUPPORTED_MEDIA_TYPE, "Binary files cannot be previewed");
+        return json_error(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "Binary files cannot be previewed",
+        );
     }
     let content = match std::str::from_utf8(blob.content()) {
         Ok(content) => content.to_owned(),
-        Err(_) => return json_error(StatusCode::UNSUPPORTED_MEDIA_TYPE, "File is not valid UTF-8"),
+        Err(_) => {
+            return json_error(
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "File is not valid UTF-8",
+            )
+        }
     };
 
     let body = serde_json::to_string(&FileResponse {
@@ -126,6 +134,8 @@ fn json_error(status: StatusCode, message: &str) -> Response<Body> {
     Response::builder()
         .status(status)
         .header("Content-Type", "application/json")
-        .body(Body::from(serde_json::json!({ "message": message }).to_string()))
+        .body(Body::from(
+            serde_json::json!({ "message": message }).to_string(),
+        ))
         .unwrap()
 }

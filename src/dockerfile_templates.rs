@@ -8,16 +8,17 @@ impl DjangoDockerfile {
             environment_vars: Vec::new(),
         }
     }
-    
+
     pub fn with_environment(mut self, env_vars: Vec<String>) -> Self {
         self.environment_vars = env_vars;
         self
     }
 
     pub fn generate(&self) -> String {
-        let mut dockerfile = String::from(r#"
+        let mut dockerfile = String::from(
+            r#"
 # Multi-stage build for smaller image
-FROM python:3.11-alpine AS builder
+FROM python:3.13-alpine AS builder
 
 WORKDIR /app
 
@@ -29,17 +30,18 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Runtime stage
-FROM python:3.11-alpine AS runtime
+FROM python:3.13-alpine AS runtime
 
 WORKDIR /app
 
 # Copy Python packages from builder
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy app
 COPY . .
-"#);
+"#,
+        );
 
         // Add environment variables
         if !self.environment_vars.is_empty() {
@@ -59,8 +61,7 @@ CMD ["sh", "-c", "\
     WSGI_MODULE=$(python -c \"import glob; files = glob.glob('*/wsgi.py'); print(files[0].split('/')[0] if files else 'wsgi')\"); \
     gunicorn --bind 0.0.0.0:80 --workers 2 $WSGI_MODULE.wsgi:application"]
 "#);
-        
+
         dockerfile
     }
-
 }

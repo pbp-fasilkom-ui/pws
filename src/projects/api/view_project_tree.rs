@@ -2,9 +2,9 @@ use axum::{
     extract::{Path, Query, State},
     response::Response,
 };
+use git2::{ObjectType, Repository};
 use hyper::{Body, StatusCode};
 use serde::Serialize;
-use git2::{ObjectType, Repository};
 use std::path::Path as StdPath;
 
 use crate::startup::AppState;
@@ -44,8 +44,7 @@ pub async fn get(
     Query(TreeQuery { r#ref, path }): Query<TreeQuery>,
 ) -> Response<Body> {
     // ---- Project existence (runtime SQLx; no macros -> no DATABASE_URL at build) ----
-    
-    
+
     let exists = sqlx::query_scalar::<_, bool>(
         r#"
         SELECT EXISTS (
@@ -56,7 +55,7 @@ pub async fn get(
             AND projects.name = $2
             AND projects.deleted_at IS NULL
         )
-        "#
+        "#,
     )
     .bind(&owner)
     .bind(&project)
@@ -68,7 +67,8 @@ pub async fn get(
         Err(err) => {
             let body = serde_json::to_string(&serde_json::json!({
                 "message": format!("Database error: {}", err)
-            })).unwrap();
+            }))
+            .unwrap();
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .header("Content-Type", "application/json")
@@ -80,15 +80,14 @@ pub async fn get(
     if !exists {
         let body = serde_json::to_string(&serde_json::json!({
             "message": "Project not found"
-        })).unwrap();
+        }))
+        .unwrap();
         return Response::builder()
             .status(StatusCode::NOT_FOUND)
             .header("Content-Type", "application/json")
             .body(Body::from(body))
             .unwrap();
     }
-
-
 
     // ---- Open bare repository ----
     let repo_path = if project.ends_with(".git") {
@@ -220,7 +219,6 @@ pub async fn get(
         }
     }
 
-
     // ---- Collect and sort entries: dirs, files, symlinks, submodules, others ----
     let mut entries: Vec<TreeEntry> = Vec::new();
 
@@ -238,7 +236,10 @@ pub async fn get(
                 if entry.filemode() == 0o120000 {
                     entries.push(TreeEntry::Symlink { name });
                 } else {
-                    let size = repo.find_blob(entry.id()).map(|b| b.size() as u64).unwrap_or(0);
+                    let size = repo
+                        .find_blob(entry.id())
+                        .map(|b| b.size() as u64)
+                        .unwrap_or(0);
                     entries.push(TreeEntry::File { name, size });
                 }
             }
@@ -281,4 +282,3 @@ pub async fn get(
         .body(Body::from(json))
         .unwrap()
 }
-

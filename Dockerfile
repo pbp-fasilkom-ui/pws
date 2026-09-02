@@ -20,8 +20,8 @@ COPY . .
 COPY --from=cacher /app/target target
 COPY --from=cacher $CARGO_HOME $CARGO_HOME
 RUN curl -sL https://deb.nodesource.com/setup_20.x -o /tmp/nodesource_setup.sh && bash /tmp/nodesource_setup.sh && apt update && apt install -y nodejs
-RUN npm install -g pnpm
-RUN cd ui && pnpm install
+RUN npm install -g pnpm@8.15.9
+RUN cd ui && pnpm install --frozen-lockfile
 RUN cd ui && pnpm build
 RUN cargo build --release
 

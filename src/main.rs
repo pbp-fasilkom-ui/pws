@@ -1,7 +1,6 @@
 use hyper::{client::HttpConnector, Body};
 use pemasak_infra::{
-    build_logs,
-    configuration,
+    build_logs, configuration,
     queue::{build_queue_handler, BuildQueue},
     startup, telemetry,
 };
@@ -23,10 +22,10 @@ async fn main() {
     };
 
     let pool = match PgPoolOptions::new()
-        .max_connections(300) 
-        .min_connections(40) 
+        .max_connections(300)
+        .min_connections(40)
         .acquire_timeout(std::time::Duration::from_secs(config.database.timeout))
-        .idle_timeout(std::time::Duration::from_secs(600))  // 10 minutes
+        .idle_timeout(std::time::Duration::from_secs(600)) // 10 minutes
         .max_lifetime(std::time::Duration::from_secs(1800)) // 30 minutes
         .connect_with(config.connection_options())
         .await

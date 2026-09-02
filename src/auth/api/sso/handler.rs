@@ -1,20 +1,18 @@
-use axum::{ 
-    extract::{State, Json},
-};
-use hyper::{Body, Response, StatusCode};
-use garde::Unvalidated;
-use serde_json::json;
-use std::collections::HashSet;
-use uuid::Uuid;
-use ulid::Ulid;
-use argon2::{Argon2, PasswordHasher};
-use argon2::password_hash::{SaltString, rand_core::OsRng};
-use sqlx::PgPool;
-use crate::{
-    auth::{Auth, SsoCallbackRequest, User, ErrorResponse, RegisterUserErrorType},
-    startup::AppState
-};
 use super::client::CasClient;
+use crate::{
+    auth::{Auth, ErrorResponse, RegisterUserErrorType, SsoCallbackRequest, User},
+    startup::AppState,
+};
+use argon2::password_hash::{rand_core::OsRng, SaltString};
+use argon2::{Argon2, PasswordHasher};
+use axum::extract::{Json, State};
+use garde::Unvalidated;
+use hyper::{Body, Response, StatusCode};
+use serde_json::json;
+use sqlx::PgPool;
+use std::collections::HashSet;
+use ulid::Ulid;
+use uuid::Uuid;
 
 #[tracing::instrument(skip(auth, pool))]
 pub async fn handle_callback(
@@ -23,11 +21,13 @@ pub async fn handle_callback(
     Json(req): Json<Unvalidated<SsoCallbackRequest>>,
 ) -> Response<Body> {
     // Validate oncoming request
-    let SsoCallbackRequest { ticket, service_url } = match req.validate(&()) {
+    let SsoCallbackRequest {
+        ticket,
+        service_url,
+    } = match req.validate(&()) {
         Ok(validated) => validated.into_inner(),
         Err(err) => {
-            let body = serde_json::to_string(&json!({ "error": err.to_string() }))
-                .unwrap();
+            let body = serde_json::to_string(&json!({ "error": err.to_string() })).unwrap();
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .header("Content-Type", "application/json")
@@ -38,14 +38,13 @@ pub async fn handle_callback(
 
     let cas_server_url = "https://sso.ui.ac.id/cas2/";
     let client = CasClient::new(service_url.clone(), cas_server_url, None);
-    
+
     // Verify CAS ticket
     let profile = match client.verify_ticket(&ticket).await {
         Ok(p) => p,
         Err(err) => {
             eprintln!("CAS verification failed: {:?}", err);
-            let body = serde_json::to_string(&json!({ "error": "Invalid ticket" }))
-                .unwrap();
+            let body = serde_json::to_string(&json!({ "error": "Invalid ticket" })).unwrap();
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .header("Content-Type", "application/json")
@@ -55,7 +54,7 @@ pub async fn handle_callback(
     };
 
     tracing::warn!(?profile);
-    
+
     // Lookup or create local user
     let username = &profile.username;
     let fullname = profile
@@ -63,9 +62,9 @@ pub async fn handle_callback(
         .as_ref()
         .and_then(|attrs| attrs.nama.clone())
         .unwrap_or_else(|| username.to_string());
-    
+
     let existing_user = User::get_from_username(&username, &pool).await.ok();
-    
+
     let user = if let Some(user) = existing_user {
         user
     } else {
@@ -76,7 +75,7 @@ pub async fn handle_callback(
             .and_then(|attrs| attrs.kd_org.as_ref())
             .map(|kd_org| kd_org.ends_with("12.01"))
             .unwrap_or(false);
-        
+
         if !is_fasilkom {
             let json = serde_json::to_string(&ErrorResponse {
                 message: "User is not from UI Faculty of Computer Science".to_string(),
@@ -93,7 +92,7 @@ pub async fn handle_callback(
         let user_id = Uuid::from(Ulid::new());
         let hasher = Argon2::default();
         let salt = SaltString::generate(&mut OsRng);
-        
+
         // Hash the username
         let password_hash = match hasher.hash_password(username.as_bytes(), &salt) {
             Ok(hash) => hash,
@@ -242,7 +241,7 @@ pub async fn handle_callback(
 
     // Login the user (both existing and new users)
     auth.login_user(user.id);
-    
+
     let json = serde_json::to_string(&json!({
         "message": "Login successful"
     }))

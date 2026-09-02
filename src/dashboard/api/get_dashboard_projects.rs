@@ -3,8 +3,8 @@ use axum::extract::State;
 use axum::response::Response;
 use hyper::{Body, StatusCode};
 use serde::Serialize;
-use uuid::Uuid;
 use sqlx::Row;
+use uuid::Uuid;
 
 #[derive(Serialize, Debug)]
 struct Project {
@@ -55,13 +55,14 @@ pub async fn get(auth: Auth, State(AppState { pool, .. }): State<AppState>) -> R
         }
     };
 
-    let projects: Vec<Project> = projects_data.into_iter().map(|record| {
-        Project {
+    let projects: Vec<Project> = projects_data
+        .into_iter()
+        .map(|record| Project {
             id: record.get::<Uuid, _>("id"),
             name: record.get::<String, _>("project"),
             owner_name: record.get::<String, _>("owner"),
-        }
-    }).collect();
+        })
+        .collect();
 
     // Get owned projects count
     let owned_count_result = sqlx::query_as::<_, (i32,)>(
@@ -87,11 +88,12 @@ pub async fn get(auth: Auth, State(AppState { pool, .. }): State<AppState>) -> R
         data: projects,
         owned_count,
         shared_count,
-    }).unwrap();
+    })
+    .unwrap();
 
     Response::builder()
         .status(StatusCode::OK)
         .header(axum::http::header::CONTENT_TYPE, "application/json")
         .body(Body::from(json))
         .unwrap()
-} 
+}

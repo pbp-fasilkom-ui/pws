@@ -3,14 +3,25 @@ target
 result
 git-repo
 configuration.yml
+configuration.yaml
 .env
 test
 ssl
+letsencrypt
+node_modules
+ui/node_modules
+ui/dist
+docs-ui/node_modules
+docs-ui/build
+docs-ui/.docusaurus
+*.log
 
 .git
+.github
 config
 .dockerignore
 .env.example
+.env.*
 .envrc
 .gitignore
 configuration.example.yml

@@ -1,8 +1,4 @@
-use axum::{
-    extract::State,
-    response::Response,
-    Form,
-};
+use axum::{extract::State, response::Response, Form};
 use garde::{Unvalidated, Validate};
 use hyper::{Body, StatusCode};
 use leptos::ssr::render_to_string;
@@ -11,10 +7,7 @@ use serde::Deserialize;
 use ulid::Ulid;
 use uuid::Uuid;
 
-use crate::{
-    auth::Auth,
-    startup::AppState,
-};
+use crate::{auth::Auth, startup::AppState};
 
 // TODO: separate schema for create and update when needed later on
 #[derive(Deserialize, Validate, Debug)]

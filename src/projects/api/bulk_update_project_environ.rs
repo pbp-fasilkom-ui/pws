@@ -1,4 +1,4 @@
-use axum::extract::{State, Path};
+use axum::extract::{Path, State};
 use axum::response::Response;
 use axum::Json;
 use hyper::{Body, StatusCode};
@@ -15,15 +15,20 @@ pub struct BulkUpdateProjectEnvironRequest {
 
 #[derive(Serialize, Debug)]
 struct ErrorResponse {
-    message: String
+    message: String,
 }
 
 #[tracing::instrument(skip(auth, pool))]
 pub async fn post(
     auth: Auth,
-    State(AppState { pool, domain, secure, .. }): State<AppState>,
+    State(AppState {
+        pool,
+        domain,
+        secure,
+        ..
+    }): State<AppState>,
     Path((owner, project)): Path<(String, String)>,
-    Json(req): Json<BulkUpdateProjectEnvironRequest>
+    Json(req): Json<BulkUpdateProjectEnvironRequest>,
 ) -> Response<Body> {
     let _user = auth.current_user.unwrap();
 
@@ -37,7 +42,7 @@ pub async fn post(
            JOIN users_owners ON project_owners.id = users_owners.owner_id
            WHERE projects.name = $1
            AND project_owners.name = $2
-        "#
+        "#,
     )
     .bind(&project)
     .bind(&owner)
@@ -47,8 +52,9 @@ pub async fn post(
         Ok(Some(record)) => record,
         Ok(None) => {
             let json = serde_json::to_string(&ErrorResponse {
-                message: "Project does not exist".to_string()
-            }).unwrap();
+                message: "Project does not exist".to_string(),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
@@ -59,8 +65,9 @@ pub async fn post(
             tracing::error!(?err, "Can't get projects: Failed to query database");
 
             let json = serde_json::to_string(&ErrorResponse {
-                message: format!("Failed to query database: {}", err.to_string())
-            }).unwrap();
+                message: format!("Failed to query database: {}", err.to_string()),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -76,8 +83,12 @@ pub async fn post(
         Ok(json) => json,
         Err(err) => {
             let json = serde_json::to_string(&ErrorResponse {
-                message: format!("Failed to serialize environment variables: {}", err.to_string())
-            }).unwrap();
+                message: format!(
+                    "Failed to serialize environment variables: {}",
+                    err.to_string()
+                ),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
@@ -91,12 +102,13 @@ pub async fn post(
         r#"UPDATE projects
             SET environs = $1
             WHERE id = $2
-        "#
+        "#,
     )
     .bind(&envs_json)
     .bind(&project_id)
     .execute(&pool)
-    .await {
+    .await
+    {
         Ok(data) => data,
         Err(err) => {
             tracing::error!(
@@ -105,14 +117,15 @@ pub async fn post(
             );
 
             let json = serde_json::to_string(&ErrorResponse {
-                message: "Failed to update database".to_string()
-            }).unwrap();
+                message: "Failed to update database".to_string(),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::from(json))
                 .unwrap();
-        }    
+        }
     };
 
     Response::builder()

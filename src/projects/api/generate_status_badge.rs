@@ -1,19 +1,19 @@
 use std::fmt;
 
-use axum::extract::{State, Path};
+use axum::extract::{Path, State};
 use axum::response::Response;
 use hyper::{Body, StatusCode};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::{auth::Auth, startup::AppState};
 
 #[derive(Serialize, Deserialize, Debug, sqlx::Type)]
-#[sqlx(type_name = "build_state", rename_all = "lowercase")] 
+#[sqlx(type_name = "build_state", rename_all = "lowercase")]
 pub enum BuildState {
     PENDING,
     BUILDING,
     SUCCESSFUL,
-    FAILED
+    FAILED,
 }
 
 impl fmt::Display for BuildState {
@@ -35,7 +35,12 @@ struct ErrorResponse {
 #[tracing::instrument(skip(auth, pool))]
 pub async fn get(
     auth: Auth,
-    State(AppState { pool, domain, secure, .. }): State<AppState>,
+    State(AppState {
+        pool,
+        domain,
+        secure,
+        ..
+    }): State<AppState>,
     Path((owner, project)): Path<(String, String)>,
 ) -> Response<Body> {
     // check if project exist
@@ -56,8 +61,9 @@ pub async fn get(
         Ok(Some(record)) => record,
         Ok(None) => {
             let json = serde_json::to_string(&ErrorResponse {
-                message: "Project does not exist".to_string()
-            }).unwrap();
+                message: "Project does not exist".to_string(),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
@@ -68,8 +74,9 @@ pub async fn get(
             tracing::error!(?err, "Can't get projects: Failed to query database");
 
             let json = serde_json::to_string(&ErrorResponse {
-                message: format!("Failed to query database: {}", err.to_string())
-            }).unwrap();
+                message: format!("Failed to query database: {}", err.to_string()),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -79,13 +86,13 @@ pub async fn get(
     };
 
     let build = match sqlx::query!(
-        r#"SELECT id, project_id, status AS "status: BuildState", created_at, updated_at, finished_at, log 
+        r#"SELECT id, project_id, status AS "status: BuildState", created_at, updated_at, finished_at, log
         FROM builds WHERE project_id = $1
         ORDER BY created_at DESC"#,
         project_record.id
     )
     .fetch_one(&pool)
-    .await 
+    .await
     {
         Ok(record) => record,
         Err(err) => {
@@ -97,11 +104,11 @@ pub async fn get(
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::from(json))
                 .unwrap();
-        }, 
+        },
     };
 
     let mut style = badgen::Style::flat();
-    
+
     style.background = match &build.status {
         BuildState::PENDING => badgen::Color::Grey,
         BuildState::FAILED => badgen::Color::Red,
@@ -109,11 +116,7 @@ pub async fn get(
         BuildState::BUILDING => badgen::Color::Yellow,
     };
 
-    let badge = badgen::badge(
-        &style, 
-        &build.status.to_string(),
-        Some("PWS Build Status"), 
-    ).unwrap();
+    let badge = badgen::badge(&style, &build.status.to_string(), Some("PWS Build Status")).unwrap();
 
     Response::builder()
         .status(StatusCode::OK)

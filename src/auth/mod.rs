@@ -1,9 +1,6 @@
 use std::collections::HashSet;
 
-use axum::{
-    middleware::Next,
-    response::Response,
-};
+use axum::{middleware::Next, response::Response};
 use axum_session::SessionStore;
 use bytes::Bytes;
 use http_body::combinators::UnsyncBoxBody;

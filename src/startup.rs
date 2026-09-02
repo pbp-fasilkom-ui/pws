@@ -76,10 +76,13 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
                 .with_config(auth_config),
         )
         .layer(SessionLayer::new(session_store))
-        .route("/health", get(health_check))  // Health check without auth layers
-        .route("/web", routing::get(|| async { Redirect::permanent("/web/") }))
+        .route("/health", get(health_check)) // Health check without auth layers
+        .route(
+            "/web",
+            routing::get(|| async { Redirect::permanent("/web/") }),
+        )
         .nest_service("/assets", ServeDir::new("assets"))
-        // TODO: find a way to have this on the "/" path instead of "/web"  
+        // TODO: find a way to have this on the "/" path instead of "/web"
         .nest_service(
             "/web/",
             ServeDir::new("ui/dist").fallback(ServeFile::new("ui/dist/index.html")),
@@ -165,9 +168,9 @@ pub async fn fallback(
                         Some(ip_address) => Ok(ip_address.clone()),
                         None => {
                             return Response::builder()
-                            .status(StatusCode::BAD_REQUEST)
-                            .body(Body::empty())
-                            .unwrap();
+                                .status(StatusCode::BAD_REQUEST)
+                                .body(Body::empty())
+                                .unwrap();
                         }
                     }
                 } else {
@@ -195,11 +198,11 @@ pub async fn fallback(
             Ok(res) => res,
             Err(err) => {
                 tracing::error!(?err, "Can't access container: Failed request to container");
-    
+
                 return Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .body(Body::empty())
-                .unwrap();
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Body::empty())
+                    .unwrap();
             }
         }
     } else {
@@ -265,9 +268,9 @@ pub async fn fallback_middleware(
                         Some(ip_address) => Ok(ip_address.clone()),
                         None => {
                             return Err(Response::builder()
-                            .status(StatusCode::BAD_REQUEST)
-                            .body(Body::empty())
-                            .unwrap());
+                                .status(StatusCode::BAD_REQUEST)
+                                .body(Body::empty())
+                                .unwrap());
                         }
                     }
                 } else {
@@ -295,11 +298,11 @@ pub async fn fallback_middleware(
             Ok(res) => Err(res),
             Err(err) => {
                 tracing::error!(?err, "Can't access container: Failed request to container");
-    
+
                 Err(Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .body(Body::empty())
-                .unwrap())
+                    .status(StatusCode::BAD_REQUEST)
+                    .body(Body::empty())
+                    .unwrap())
             }
         }
     } else {

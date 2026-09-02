@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod build_logs;
 pub mod configuration;
+pub mod dashboard;
 pub mod docker;
 pub mod dockerfile_templates;
 pub mod get_env;
@@ -10,4 +11,3 @@ pub mod projects;
 pub mod queue;
 pub mod startup;
 pub mod telemetry;
-pub mod dashboard;

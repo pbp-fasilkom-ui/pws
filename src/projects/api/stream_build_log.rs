@@ -2,7 +2,10 @@ use std::{collections::VecDeque, convert::Infallible, sync::Arc, time::Duration}
 
 use axum::{
     extract::{Path, State},
-    response::{sse::{Event, KeepAlive, Sse}, IntoResponse, Response},
+    response::{
+        sse::{Event, KeepAlive, Sse},
+        IntoResponse, Response,
+    },
 };
 use futures::stream;
 use hyper::StatusCode;
@@ -56,7 +59,9 @@ fn json_event<T: Serialize>(event: &str, value: T) -> Event {
 
 pub async fn get(
     auth: Auth,
-    State(AppState { pool, build_logs, .. }): State<AppState>,
+    State(AppState {
+        pool, build_logs, ..
+    }): State<AppState>,
     Path((owner, project, build_id)): Path<(String, String, Uuid)>,
 ) -> Response {
     let Some(user) = auth.current_user else {
@@ -94,30 +99,45 @@ pub async fn get(
     // Subscribe before taking the snapshot. Events already represented by the
     // snapshot are skipped by sequence number, so no chunk can be lost here.
     let log_state = build_logs.read().await.get(&build_id).cloned();
-    let (receiver, snapshot, snapshot_status, snapshot_queue_position, snapshot_sequence) = if let Some(state) = &log_state {
-        let receiver = state.subscribe();
-        let (snapshot, status, position, sequence) = state.snapshot().await;
-        (Some(receiver), snapshot, status, position, sequence)
-    } else {
-        (None, database_log, database_status, None, 0)
-    };
+    let (receiver, snapshot, snapshot_status, snapshot_queue_position, snapshot_sequence) =
+        if let Some(state) = &log_state {
+            let receiver = state.subscribe();
+            let (snapshot, status, position, sequence) = state.snapshot().await;
+            (Some(receiver), snapshot, status, position, sequence)
+        } else {
+            (None, database_log, database_status, None, 0)
+        };
 
     let mut initial = VecDeque::new();
-    initial.push_back(json_event("snapshot", Snapshot {
-        logs: &snapshot,
-        sequence: snapshot_sequence,
-    }));
-    initial.push_back(json_event("status", Status {
-        status: &snapshot_status,
-        sequence: snapshot_sequence,
-    }));
-    initial.push_back(json_event("queue", QueuePosition {
-        position: snapshot_queue_position,
-        sequence: snapshot_sequence,
-    }));
+    initial.push_back(json_event(
+        "snapshot",
+        Snapshot {
+            logs: &snapshot,
+            sequence: snapshot_sequence,
+        },
+    ));
+    initial.push_back(json_event(
+        "status",
+        Status {
+            status: &snapshot_status,
+            sequence: snapshot_sequence,
+        },
+    ));
+    initial.push_back(json_event(
+        "queue",
+        QueuePosition {
+            position: snapshot_queue_position,
+            sequence: snapshot_sequence,
+        },
+    ));
 
     let output = stream::unfold(
-        StreamState { initial, receiver, log_state, snapshot_sequence },
+        StreamState {
+            initial,
+            receiver,
+            log_state,
+            snapshot_sequence,
+        },
         |mut state| async move {
             if let Some(event) = state.initial.pop_front() {
                 return Some((Ok::<Event, Infallible>(event), state));
@@ -129,18 +149,27 @@ pub async fn get(
                     Ok(event) if event.sequence <= state.snapshot_sequence => continue,
                     Ok(event) => {
                         let sse = match event.event.as_str() {
-                            "log" => json_event("log", Chunk {
-                                chunk: &event.data,
-                                sequence: event.sequence,
-                            }),
-                            "queue" => json_event("queue", QueuePosition {
-                                position: event.data.parse().ok(),
-                                sequence: event.sequence,
-                            }),
-                            _ => json_event("status", Status {
-                                status: &event.data,
-                                sequence: event.sequence,
-                            }),
+                            "log" => json_event(
+                                "log",
+                                Chunk {
+                                    chunk: &event.data,
+                                    sequence: event.sequence,
+                                },
+                            ),
+                            "queue" => json_event(
+                                "queue",
+                                QueuePosition {
+                                    position: event.data.parse().ok(),
+                                    sequence: event.sequence,
+                                },
+                            ),
+                            _ => json_event(
+                                "status",
+                                Status {
+                                    status: &event.data,
+                                    sequence: event.sequence,
+                                },
+                            ),
                         };
                         state.snapshot_sequence = event.sequence;
                         return Some((Ok(sse), state));
@@ -149,10 +178,13 @@ pub async fn get(
                         if let Some(log_state) = &state.log_state {
                             let (snapshot, _, _, sequence) = log_state.snapshot().await;
                             state.snapshot_sequence = sequence;
-                            let event = json_event("snapshot", Snapshot {
-                                logs: &snapshot,
-                                sequence,
-                            });
+                            let event = json_event(
+                                "snapshot",
+                                Snapshot {
+                                    logs: &snapshot,
+                                    sequence,
+                                },
+                            );
                             return Some((Ok(event), state));
                         }
                     }
@@ -163,6 +195,10 @@ pub async fn get(
     );
 
     Sse::new(output)
-        .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)).text("keep-alive"))
+        .keep_alive(
+            KeepAlive::new()
+                .interval(Duration::from_secs(15))
+                .text("keep-alive"),
+        )
         .into_response()
 }

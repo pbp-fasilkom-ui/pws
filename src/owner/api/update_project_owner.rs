@@ -8,10 +8,7 @@ use hyper::{Body, StatusCode};
 use leptos::*;
 use serde::Deserialize;
 
-use crate::{
-    auth::Auth,
-    startup::AppState,
-};
+use crate::{auth::Auth, startup::AppState};
 
 // TODO: separate schema for create and update when needed later on
 #[derive(Deserialize, Validate, Debug)]

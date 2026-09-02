@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::fs::File;
 
-use axum::extract::{State, Path};
+use axum::extract::{Path, State};
 use axum::response::Response;
-use bollard::Docker;
 use bollard::container::{RemoveContainerOptions, StopContainerOptions};
+use bollard::Docker;
 use hyper::{Body, StatusCode};
 use serde::Serialize;
 
@@ -13,13 +13,13 @@ use crate::startup::AppState;
 
 #[derive(Serialize)]
 struct DeleteProjectSuccessResponse {
-    message: String
+    message: String,
 }
 
 #[derive(Serialize)]
 struct DeleteProjectErrorResponse {
     message: String,
-    details: Vec<String>
+    details: Vec<String>,
 }
 
 #[tracing::instrument(skip(pool, base, auth))]
@@ -31,18 +31,18 @@ pub async fn post(
     fn to_response(status: HashMap<&'static str, &'static str>) -> Response<Body> {
         let success = status.iter().all(|(_, v)| *v == "successfully deleted");
         let json = match success {
-            true => serde_json::to_string(
-                &DeleteProjectSuccessResponse {
-                    message: "Successfully deleted project".to_string(),
-                }
-            ),
-            false => serde_json::to_string(
-                &DeleteProjectErrorResponse {
-                    message: "Failed to delete project".to_string(),
-                    details: status.into_iter().map(|(k, v)|{ format!("{}: {}", k.to_string(), v.to_string()) }).collect::<Vec<_>>()
-                }
-            )
-        }.unwrap();
+            true => serde_json::to_string(&DeleteProjectSuccessResponse {
+                message: "Successfully deleted project".to_string(),
+            }),
+            false => serde_json::to_string(&DeleteProjectErrorResponse {
+                message: "Failed to delete project".to_string(),
+                details: status
+                    .into_iter()
+                    .map(|(k, v)| format!("{}: {}", k.to_string(), v.to_string()))
+                    .collect::<Vec<_>>(),
+            }),
+        }
+        .unwrap();
 
         Response::builder()
             .status(StatusCode::OK)
@@ -60,16 +60,17 @@ pub async fn post(
             if user.username != owner {
                 let json = serde_json::to_string(&DeleteProjectErrorResponse {
                     message: format!("You are not allowed to delete this project"),
-                    details: vec!(),
-                }).unwrap();
-    
+                    details: vec![],
+                })
+                .unwrap();
+
                 return Response::builder()
                     .status(StatusCode::BAD_REQUEST)
                     .body(Body::from(json))
                     .unwrap();
             }
-        },
-        None => ()
+        }
+        None => (),
     }
 
     //TODO: better error log
@@ -208,8 +209,6 @@ pub async fn post(
             status.insert("image", "failed to delete: image does not exist");
         }
     };
-
-
 
     to_response(status)
 }

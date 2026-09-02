@@ -4,8 +4,8 @@ use hyper::{Body, StatusCode};
 use uuid::Uuid;
 
 use crate::{auth::Auth, startup::AppState};
-use sqlx::Row;
 use serde::Serialize;
+use sqlx::Row;
 
 #[derive(Serialize, Debug)]
 struct ErrorResponse {
@@ -21,7 +21,8 @@ pub async fn post(
     let Some(_user) = auth.current_user else {
         let json = serde_json::to_string(&ErrorResponse {
             message: "Unauthorized".to_string(),
-        }).unwrap();
+        })
+        .unwrap();
         return Response::builder()
             .status(StatusCode::UNAUTHORIZED)
             .header(axum::http::header::CONTENT_TYPE, "application/json")
@@ -44,7 +45,8 @@ pub async fn post(
     let Some(record) = project_record else {
         let json = serde_json::to_string(&ErrorResponse {
             message: "Project not found".to_string(),
-        }).unwrap();
+        })
+        .unwrap();
         return Response::builder()
             .status(StatusCode::NOT_FOUND)
             .header(axum::http::header::CONTENT_TYPE, "application/json")
@@ -68,6 +70,8 @@ pub async fn post(
     Response::builder()
         .status(StatusCode::OK)
         .header(axum::http::header::CONTENT_TYPE, "application/json")
-        .body(Body::from(r#"{"message": "Project unshared successfully"}"#))
+        .body(Body::from(
+            r#"{"message": "Project unshared successfully"}"#,
+        ))
         .unwrap()
 }
