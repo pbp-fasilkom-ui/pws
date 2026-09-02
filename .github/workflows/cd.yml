@@ -1,83 +1,49 @@
 name: CD
 
 on:
-  push:
-    branches: [master]
   workflow_dispatch:
     inputs:
-      deploy:
-        description: Deploy the selected revision to production
+      image_sha:
+        description: Commit SHA of the image to deploy manually on the VM
         required: true
-        default: true
-        type: boolean
+        type: string
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
-  deploy:
-    name: Deploy to production
-    if: >-
-      ((github.event_name == 'push' && github.ref == 'refs/heads/master') ||
-      (github.event_name == 'workflow_dispatch' && inputs.deploy == true))
+  prepare:
+    name: Verify image for manual deployment
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    environment: production
     steps:
-      - name: Report deployment disabled
-        if: vars.DEPLOY_ENABLED != 'true'
-        run: echo "DEPLOY_ENABLED is not true; deployment skipped."
-
-      - name: Rebuild and restart server on VM
-        if: vars.DEPLOY_ENABLED == 'true'
-        uses: appleboy/ssh-action@v1.2.2
+      - name: Validate image SHA
         env:
-          DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
-          DEPLOY_BRANCH: master
-          IMAGE_TAG: pws-server:${{ github.sha }}
+          IMAGE_SHA: ${{ inputs.image_sha }}
+        run: |
+          if [[ ! "$IMAGE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "image_sha must be the full 40-character commit SHA." >&2
+            exit 1
+          fi
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
-          host: ${{ vars.DEPLOY_HOST }}
-          username: ${{ vars.DEPLOY_USER }}
-          key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: DEPLOY_PATH,DEPLOY_BRANCH,IMAGE_TAG
-          command_timeout: 40m
-          script_stop: true
-          script: |
-            set -eu
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-            : "${DEPLOY_PATH:?DEPLOY_PATH is required}"
-            : "${DEPLOY_BRANCH:?DEPLOY_BRANCH is required}"
-            : "${IMAGE_TAG:?IMAGE_TAG is required}"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-            cd "$DEPLOY_PATH"
-            test -f docker-compose.yml
-            test -f .env
+      - name: Check image exists in GHCR
+        env:
+          IMAGE_SHA: ${{ inputs.image_sha }}
+        run: docker buildx imagetools inspect "ghcr.io/pbp-fasilkom-ui/pws:$IMAGE_SHA"
 
-            if [ -n "$(git status --porcelain)" ]; then
-              echo "Deployment stopped: the deployment checkout has local changes." >&2
-              exit 1
-            fi
-
-            git fetch --prune origin "$DEPLOY_BRANCH"
-            if git show-ref --verify --quiet "refs/heads/$DEPLOY_BRANCH"; then
-              git checkout "$DEPLOY_BRANCH"
-            else
-              git checkout -b "$DEPLOY_BRANCH" --track "origin/$DEPLOY_BRANCH"
-            fi
-            git pull --ff-only origin "$DEPLOY_BRANCH"
-
-            previous_image="$(docker inspect --format '{{.Config.Image}}' server-pemasak 2>/dev/null || true)"
-
-            PWS_IMAGE="$IMAGE_TAG" docker compose build server
-            PWS_IMAGE="$IMAGE_TAG" docker compose up -d --no-build --no-deps server
-
-            if ! curl --fail --silent --show-error --retry 10 --retry-delay 3 http://127.0.0.1:8080/health; then
-              echo "Deployment health check failed; attempting rollback." >&2
-              if [ -n "$previous_image" ] && docker image inspect "$previous_image" >/dev/null 2>&1; then
-                PWS_IMAGE="$previous_image" docker compose up -d --no-build --no-deps server
-                curl --fail --silent --show-error --retry 10 --retry-delay 3 http://127.0.0.1:8080/health
-              fi
-              exit 1
-            fi
-
-            printf '\nDeployment completed for %s.\n' "$IMAGE_TAG"
+      - name: Print manual deployment command
+        env:
+          IMAGE_SHA: ${{ inputs.image_sha }}
+        run: |
+          echo "Image is ready: ghcr.io/pbp-fasilkom-ui/pws:$IMAGE_SHA"
+          echo "Run scripts/deploy-image.sh $IMAGE_SHA on the production VM."
