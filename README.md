@@ -85,7 +85,7 @@ and make sure have `gunicorn` in the `requirements.txt` file.
 
 ### CI/CD Guide
 
-GitHub Actions runs backend checks, UI and documentation builds, and a Docker build for pull requests targeting `master`. Clippy, UI lint, and documentation typechecking currently run as advisory checks because the existing `master` branch has baseline findings. Pushes to `master` and version tags (`v*.*.*`) publish the server image to GitHub Container Registry as `ghcr.io/pbp-fasilkom-ui/pws`.
+The `CI` GitHub Actions workflow runs backend checks, UI and documentation builds, and a Docker build for pull requests targeting `master`. Clippy, UI lint, and documentation typechecking currently run as advisory checks because the existing `master` branch has baseline findings. The separate `CD` workflow publishes images from `master` and version tags (`v*.*.*`) to GitHub Container Registry as `ghcr.io/pbp-fasilkom-ui/pws`.
 
 The workflow can also deploy the published `master` image to a Docker host over SSH. To enable this, create a repository or `production` environment variable named `DEPLOY_ENABLED` with the value `true`, then add these environment secrets:
 
