@@ -85,21 +85,19 @@ and make sure have `gunicorn` in the `requirements.txt` file.
 
 ### CI/CD Guide
 
-The `CI` GitHub Actions workflow runs backend checks, UI and documentation builds, and a Docker build for pull requests targeting `master`. Clippy, UI lint, and documentation typechecking currently run as advisory checks because the existing `master` branch has baseline findings. The separate `CD` workflow publishes images from `master` and version tags (`v*.*.*`) to GitHub Container Registry as `ghcr.io/pbp-fasilkom-ui/pws`.
+The `CI` GitHub Actions workflow runs backend checks, UI and documentation builds, and a Docker build for pull requests targeting `master`. Clippy, UI lint, and documentation typechecking currently run as advisory checks because the existing `master` branch has baseline findings. The separate `CD` workflow deploys `master` to the production Docker host over SSH.
 
-The workflow can also deploy the published `master` image to a Docker host over SSH. To enable this, create a `production` environment and add `DEPLOY_ENABLED=true` as an environment variable. Add these additional environment variables:
+The workflow rebuilds the `server` image on the deployment host, allowing Docker to reuse its local dependency layers. To enable this, create a `production` environment and add `DEPLOY_ENABLED=true` as an environment variable. Add these additional environment variables:
 
 - `DEPLOY_HOST`: production server hostname or IP
 - `DEPLOY_USER`: SSH user
 - `DEPLOY_PATH`: directory containing this repository's `docker-compose.yml` and `.env`
-- `GHCR_DEPLOY_USER`: GitHub user or machine account that can read the package
 
 Add these environment secrets:
 
 - `DEPLOY_SSH_KEY`: private SSH key for that user
-- `GHCR_DEPLOY_TOKEN`: GitHub token with `read:packages`
 
-The deployment host must have Docker Compose, `curl`, and the repository checked out. The workflow pulls the published image, recreates only the `server` service, and verifies `/health`. Set `PWS_IMAGE` in the environment for manual deployments when using a different registry or image; otherwise Compose falls back to the project GHCR image.
+The deployment host must have Git, Docker Compose, `curl`, and the repository checked out on the `master` branch. The workflow refuses to deploy when the checkout has local changes, fast-forwards it from `origin/master`, rebuilds only the `server` service with a commit-specific local image tag, recreates only that service, and verifies `/health`. If the health check fails, it attempts to restore the previous server image.
 
 ### Setting up the docusaurus
 

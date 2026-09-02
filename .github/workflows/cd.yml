@@ -3,85 +3,77 @@ name: CD
 on:
   push:
     branches: [master]
-    tags: ['v*.*.*']
   workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy the selected revision to production
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: read
 
-env:
-  IMAGE_NAME: ghcr.io/${{ github.repository }}
-
 jobs:
-  publish:
-    name: Publish image
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Generate image metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=sha,prefix=sha-
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and publish container image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
   deploy:
     name: Deploy to production
-    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/master' && vars.DEPLOY_ENABLED == 'true'
+    if: >-
+      vars.DEPLOY_ENABLED == 'true' &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/master') ||
+      (github.event_name == 'workflow_dispatch' && inputs.deploy == true))
     runs-on: ubuntu-latest
-    needs: [publish]
+    timeout-minutes: 45
     environment: production
     steps:
-      - name: Deploy published image over SSH
+      - name: Rebuild and restart server on VM
         uses: appleboy/ssh-action@v1.2.2
         env:
-          IMAGE: ${{ env.IMAGE_NAME }}:latest
-          REGISTRY_TOKEN: ${{ secrets.GHCR_DEPLOY_TOKEN }}
-          REGISTRY_USER: ${{ vars.GHCR_DEPLOY_USER }}
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+          DEPLOY_BRANCH: master
+          IMAGE_TAG: pws-server:${{ github.sha }}
         with:
           host: ${{ vars.DEPLOY_HOST }}
           username: ${{ vars.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: IMAGE,REGISTRY_TOKEN,REGISTRY_USER,DEPLOY_PATH
+          envs: DEPLOY_PATH,DEPLOY_BRANCH,IMAGE_TAG
+          command_timeout: 40m
           script_stop: true
           script: |
             set -eu
+
+            : "${DEPLOY_PATH:?DEPLOY_PATH is required}"
+            : "${DEPLOY_BRANCH:?DEPLOY_BRANCH is required}"
+            : "${IMAGE_TAG:?IMAGE_TAG is required}"
+
             cd "$DEPLOY_PATH"
-            printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io --username "$REGISTRY_USER" --password-stdin
-            PWS_IMAGE="$IMAGE" docker compose pull server
-            PWS_IMAGE="$IMAGE" docker compose up -d --no-build server
-            docker image prune -f
-            curl --fail --retry 10 --retry-delay 3 http://127.0.0.1:8080/health
+            test -f docker-compose.yml
+            test -f .env
+
+            if [ -n "$(git status --porcelain)" ]; then
+              echo "Deployment stopped: the deployment checkout has local changes." >&2
+              exit 1
+            fi
+
+            git fetch --prune origin "$DEPLOY_BRANCH"
+            if git show-ref --verify --quiet "refs/heads/$DEPLOY_BRANCH"; then
+              git checkout "$DEPLOY_BRANCH"
+            else
+              git checkout -b "$DEPLOY_BRANCH" --track "origin/$DEPLOY_BRANCH"
+            fi
+            git pull --ff-only origin "$DEPLOY_BRANCH"
+
+            previous_image="$(docker inspect --format '{{.Config.Image}}' server-pemasak 2>/dev/null || true)"
+
+            PWS_IMAGE="$IMAGE_TAG" docker compose build server
+            PWS_IMAGE="$IMAGE_TAG" docker compose up -d --no-build --no-deps server
+
+            if ! curl --fail --silent --show-error --retry 10 --retry-delay 3 http://127.0.0.1:8080/health; then
+              echo "Deployment health check failed; attempting rollback." >&2
+              if [ -n "$previous_image" ] && docker image inspect "$previous_image" >/dev/null 2>&1; then
+                PWS_IMAGE="$previous_image" docker compose up -d --no-build --no-deps server
+                curl --fail --silent --show-error --retry 10 --retry-delay 3 http://127.0.0.1:8080/health
+              fi
+              exit 1
+            fi
+
+            printf '\nDeployment completed for %s.\n' "$IMAGE_TAG"
