@@ -134,7 +134,7 @@ export default function AuthProvider({
         authenticated: false,
         initializing: false,
       }));
-      router.history.replace("/sso");
+      navigate({ to: "/sso" });
     }
   }
 
@@ -187,7 +187,7 @@ export default function AuthProvider({
       !auth.authenticated &&
       !AUTH_ROUTES.some((route) => route === location.pathname)
     ) {
-      router.history.replace(`/sso`);
+      navigate({ to: "/sso" });
     }
   }, [auth, location.pathname]);
 
