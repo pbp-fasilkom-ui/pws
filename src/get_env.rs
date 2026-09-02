@@ -17,7 +17,9 @@ pub fn db_password() -> String {
 
 /// Get database port
 pub fn db_port() -> u16 {
-    get_env_or_default("DB_PORT", "5432").parse().unwrap_or(5432)
+    get_env_or_default("DB_PORT", "5432")
+        .parse()
+        .unwrap_or(5432)
 }
 
 /// Get database name
@@ -27,7 +29,9 @@ pub fn db_name() -> String {
 
 /// Get application port
 pub fn app_port() -> u16 {
-    get_env_or_default("APPLICATION_PORT", "8080").parse().unwrap_or(8080)
+    get_env_or_default("APPLICATION_PORT", "8080")
+        .parse()
+        .unwrap_or(8080)
 }
 
 /// Get domain for Traefik routing
@@ -37,10 +41,16 @@ pub fn domain() -> String {
 
 /// Get database URL
 pub fn database_url() -> String {
-    get_env_or_default("DATABASE_URL", &format!(
-        "postgresql://{}:{}@localhost:{}/{}", 
-        db_user(), db_password(), db_port(), db_name()
-    ))
+    get_env_or_default(
+        "DATABASE_URL",
+        &format!(
+            "postgresql://{}:{}@localhost:{}/{}",
+            db_user(),
+            db_password(),
+            db_port(),
+            db_name()
+        ),
+    )
 }
 
 /// Get Grafana admin user

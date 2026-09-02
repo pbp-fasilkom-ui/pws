@@ -3,7 +3,7 @@ use std::{
     hash::Hash,
     panic::AssertUnwindSafe,
     sync::Arc,
-    time::{SystemTime, Duration},
+    time::{Duration, SystemTime},
 };
 
 use anyhow::Result;
@@ -12,14 +12,14 @@ use sqlx::PgPool;
 use thiserror::Error;
 use tokio::sync::mpsc::{self, Receiver, Sender};
 use tokio::sync::{Mutex, Semaphore};
-use tokio::time::{timeout, sleep};
+use tokio::time::{sleep, timeout};
 use ulid::Ulid;
 use uuid::Uuid;
 
 use crate::{
     build_logs::{BuildLogRegistry, BuildLogState},
-    docker::{build_docker, DockerContainer},
     configuration::Settings,
+    docker::{build_docker, DockerContainer},
 };
 
 type ConcurrentMutex<T> = Arc<Mutex<T>>;
@@ -173,12 +173,11 @@ pub async fn trigger_build(
         }),
     }?;
 
-    if let Err(err) = sqlx::query(
-        "UPDATE builds SET status = 'building', updated_at = now() WHERE id = $1"
-    )
-    .bind(build_id)
-    .execute(&pool)
-    .await
+    if let Err(err) =
+        sqlx::query("UPDATE builds SET status = 'building', updated_at = now() WHERE id = $1")
+            .bind(build_id)
+            .execute(&pool)
+            .await
     {
         return Err(BuildError {
             message: "Failed to update build status: Failed to query database".to_string(),
@@ -188,9 +187,7 @@ pub async fn trigger_build(
     log_state.status("building").await;
 
     // TODO: Differentiate types of errors returned by build_docker (ex: ImageBuildError, NetworkCreateError, ContainerAttachError)
-    let DockerContainer {
-        ip, port, ..
-    } = match build_docker(
+    let DockerContainer { ip, port, .. } = match build_docker(
         &owner,
         &repo,
         &container_name,
@@ -198,7 +195,9 @@ pub async fn trigger_build(
         pool.clone(),
         config,
         log_state.clone(),
-    ).await {
+    )
+    .await
+    {
         Ok(result) => {
             let (final_log, _, _, _) = log_state.snapshot().await;
             if let Err(err) = sqlx::query(
@@ -260,7 +259,7 @@ pub async fn trigger_build(
             let id = Uuid::from(Ulid::new());
             let subdomain = sqlx::query(
                 r#"INSERT INTO domains (id, project_id, name, port, docker_ip)
-                   VALUES ($1, $2, $3, $4, $5)"#
+                   VALUES ($1, $2, $3, $4, $5)"#,
             )
             .bind(id)
             .bind(project.id)
@@ -296,19 +295,21 @@ pub async fn process_task_poll(
     build_logs: BuildLogRegistry,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut last_metrics_log = SystemTime::now();
-    
+
     loop {
         let mut waiting_queue = waiting_queue.lock().await;
         let mut waiting_set = waiting_set.lock().await;
 
         let available_slots = build_slots.available_permits();
         let queue_len = waiting_queue.len();
-        
+
         // Log metrics every 30 seconds
         if last_metrics_log.elapsed().unwrap_or(Duration::ZERO) > Duration::from_secs(30) {
             tracing::info!(
-                "BUILD_QUEUE_METRICS: available_slots={}, queue_length={}, waiting_set_size={}", 
-                available_slots, queue_len, waiting_set.len()
+                "BUILD_QUEUE_METRICS: available_slots={}, queue_length={}, waiting_set_size={}",
+                available_slots,
+                queue_len,
+                waiting_set.len()
             );
             last_metrics_log = SystemTime::now();
         }
@@ -328,18 +329,18 @@ pub async fn process_task_poll(
                     drop(waiting_queue);
                     drop(waiting_set);
                     continue;
-                },
+                }
             };
-            
+
             tracing::info!(
-                "BUILD_STARTING: build_id={}, container={}, owner={}, repo={}, queue_wait_time={}ms", 
-                build_item.build_id, 
-                build_item.container_name, 
-                build_item.owner, 
+                "BUILD_STARTING: build_id={}, container={}, owner={}, repo={}, queue_wait_time={}ms",
+                build_item.build_id,
+                build_item.container_name,
+                build_item.owner,
                 build_item.repo,
                 build_item.created_at.elapsed().unwrap_or(Duration::ZERO).as_millis()
             );
-            
+
             waiting_set.remove(&build_item.container_name);
             build_item.log_state.queue_position(None).await;
             refresh_queue_positions(&waiting_queue).await;
@@ -359,7 +360,7 @@ pub async fn process_task_poll(
                 // times out, is aborted, or panics, so queue slots cannot leak.
                 tokio::spawn(async move {
                     let build_start = SystemTime::now();
-                    
+
                     // Add timeout wrapper around trigger_build
                     let build_timeout = Duration::from_secs(config.build.timeout as u64 / 1000); // Convert from ms
                     let build_result = AssertUnwindSafe(timeout(
@@ -368,18 +369,23 @@ pub async fn process_task_poll(
                     ))
                     .catch_unwind()
                     .await;
-                    
+
                     match build_result {
                         Ok(Ok(Ok(subdomain))) => {
                             log_state.status("successful").await;
                             let build_duration = build_start.elapsed().unwrap_or(Duration::ZERO);
                             tracing::info!(
-                                "BUILD_SUCCESS: build_id={}, container={}, subdomain={}, duration={}ms", 
+                                "BUILD_SUCCESS: build_id={}, container={}, subdomain={}, duration={}ms",
                                 build_id, container_name, subdomain, build_duration.as_millis()
                             );
-                        },
-                        Ok(Ok(Err(BuildError { message, inner_error }))) => {
-                            log_state.append(&format!("Build failed: {message}\n")).await;
+                        }
+                        Ok(Ok(Err(BuildError {
+                            message,
+                            inner_error,
+                        }))) => {
+                            log_state
+                                .append(&format!("Build failed: {message}\n"))
+                                .await;
                             let (final_log, _, _, _) = log_state.snapshot().await;
                             if let Err(err) = sqlx::query(
                                 "UPDATE builds SET status = 'failed', log = $1, updated_at = now(), finished_at = now() WHERE id = $2"
@@ -394,18 +400,21 @@ pub async fn process_task_poll(
                             log_state.status("failed").await;
                             let build_duration = build_start.elapsed().unwrap_or(Duration::ZERO);
                             tracing::error!(
-                                "BUILD_ERROR: build_id={}, container={}, duration={}ms, error={}, inner_error={:?}", 
+                                "BUILD_ERROR: build_id={}, container={}, duration={}ms, error={}, inner_error={:?}",
                                 build_id, container_name, build_duration.as_millis(), message, inner_error
                             );
-                        },
+                        }
                         Ok(Err(_timeout_error)) => {
                             tracing::error!(
-                                "BUILD_TIMEOUT: build_id={}, container={}, timeout_seconds={}", 
-                                build_id, container_name, build_timeout.as_secs()
+                                "BUILD_TIMEOUT: build_id={}, container={}, timeout_seconds={}",
+                                build_id,
+                                container_name,
+                                build_timeout.as_secs()
                             );
-                            
+
                             // Mark build as failed due to timeout
-                            let timeout_msg = format!("Build timeout after {} seconds", build_timeout.as_secs());
+                            let timeout_msg =
+                                format!("Build timeout after {} seconds", build_timeout.as_secs());
                             log_state.append(&format!("{timeout_msg}\n")).await;
                             let (final_log, _, _, _) = log_state.snapshot().await;
                             if let Err(err) = sqlx::query(
@@ -419,14 +428,15 @@ pub async fn process_task_poll(
                                 tracing::error!("Failed to update timeout build status: {:?}", err);
                             }
                             log_state.status("failed").await;
-                        },
+                        }
                         Err(panic) => {
                             let panic_message = panic
                                 .downcast_ref::<&str>()
                                 .map(|message| (*message).to_string())
                                 .or_else(|| panic.downcast_ref::<String>().cloned())
                                 .unwrap_or_else(|| "unknown panic".to_string());
-                            let message = format!("Build aborted by an internal error: {panic_message}\n");
+                            let message =
+                                format!("Build aborted by an internal error: {panic_message}\n");
                             log_state.append(&message).await;
                             let (final_log, _, _, _) = log_state.snapshot().await;
                             if let Err(err) = sqlx::query(
@@ -519,7 +529,7 @@ pub async fn process_task_enqueue(
         match sqlx::query(
             r#"INSERT INTO builds (id, project_id, branch, commit_sha)
                VALUES ($1, $2, $3, $4)
-            "#
+            "#,
         )
         .bind(build_id)
         .bind(project.id)
@@ -547,7 +557,7 @@ pub async fn process_task_enqueue(
             log_state,
             created_at: SystemTime::now(),
         };
-        
+
         tracing::info!(
             "BUILD_ENQUEUED: build_id={}, container={}, owner={}, repo={}, branch={}, commit={}, queue_position={}",
             build_id, container_name, owner, repo, branch, commit_sha, waiting_queue.len()
@@ -569,7 +579,15 @@ pub async fn build_queue_handler(build_queue: BuildQueue) {
         let build_logs = build_queue.build_logs.clone();
 
         tokio::spawn(async move {
-            let _ = process_task_poll(waiting_queue, waiting_set, build_slots, pool, config, build_logs).await;
+            let _ = process_task_poll(
+                waiting_queue,
+                waiting_set,
+                build_slots,
+                pool,
+                config,
+                build_logs,
+            )
+            .await;
         });
     }
     {

@@ -1,8 +1,8 @@
 use std::{collections::HashMap, process::Stdio, sync::Arc};
 
+use crate::build_logs::BuildLogState;
+use crate::{configuration::Settings, dockerfile_templates::DjangoDockerfile, get_env};
 use anyhow::Result;
-use serde_json;
-use uuid;
 use bollard::network::DisconnectNetworkOptions;
 use bollard::{
     container::{Config, CreateContainerOptions, ListContainersOptions, StartContainerOptions},
@@ -11,35 +11,46 @@ use bollard::{
     service::{HostConfig, NetworkContainer, RestartPolicy, RestartPolicyNameEnum},
     Docker,
 };
-use crate::{dockerfile_templates::DjangoDockerfile, get_env, configuration::Settings};
+use serde_json;
 use sqlx::PgPool;
-use tokio::{io::{AsyncRead, AsyncReadExt}, process::Command};
-use crate::build_logs::BuildLogState;
+use tokio::{
+    io::{AsyncRead, AsyncReadExt},
+    process::Command,
+};
+use uuid;
 
-async fn stream_command_output(
-    mut cmd: Command,
-    log_state: Arc<BuildLogState>,
-) -> Result<()> {
+async fn stream_command_output(mut cmd: Command, log_state: Arc<BuildLogState>) -> Result<()> {
     cmd.kill_on_drop(true);
     let mut child = cmd.spawn().map_err(|err| {
         tracing::error!(?err, "Failed to spawn docker build");
         err
     })?;
 
-    async fn forward<R: AsyncRead + Unpin>(mut reader: R, state: Arc<BuildLogState>) -> std::io::Result<()> {
+    async fn forward<R: AsyncRead + Unpin>(
+        mut reader: R,
+        state: Arc<BuildLogState>,
+    ) -> std::io::Result<()> {
         let mut bytes = [0_u8; 8192];
         loop {
             let count = reader.read(&mut bytes).await?;
             if count == 0 {
                 break;
             }
-            state.append(&String::from_utf8_lossy(&bytes[..count])).await;
+            state
+                .append(&String::from_utf8_lossy(&bytes[..count]))
+                .await;
         }
         Ok(())
     }
 
-    let stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("Docker build stdout is not piped"))?;
-    let stderr = child.stderr.take().ok_or_else(|| anyhow::anyhow!("Docker build stderr is not piped"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("Docker build stdout is not piped"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow::anyhow!("Docker build stderr is not piped"))?;
     let stdout_task = tokio::spawn(forward(stdout, log_state.clone()));
     let stderr_task = tokio::spawn(forward(stderr, log_state));
 
@@ -121,7 +132,8 @@ pub async fn build_docker(
         FROM projects
         JOIN project_owners ON projects.owner_id = project_owners.id
         WHERE projects.name = $1 AND project_owners.name = $2"#,
-        project_name, owner,
+        project_name,
+        owner,
     )
     .fetch_one(&pool)
     .await
@@ -153,7 +165,7 @@ pub async fn build_docker(
                     .unwrap()
                     .to_string(),
             ];
-            
+
             // Add environment variables as build args
             if let Some(env_map) = envs.environs.as_object() {
                 for (key, value) in env_map {
@@ -162,43 +174,46 @@ pub async fn build_docker(
                 }
                 tracing::debug!(container_name, "Added {} build args", env_map.len());
             }
-            
+
             args.push(container_src.to_string());
             cmd.args(&args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
 
             stream_command_output(cmd, log_state.clone()).await?;
         }
         false => {
             tracing::debug!(container_name, "Generating efficient Django Dockerfile");
-            
+
             // Generate our efficient multi-stage Dockerfile with environment variables
             let environment_strings = match envs.environs.as_object() {
-                Some(map) => {
-                    map.into_iter().map(|(key, value)| {
-                        format!("{}={}", key, value.as_str().unwrap_or(""))
-                    }).collect::<Vec<_>>()
-                },
+                Some(map) => map
+                    .into_iter()
+                    .map(|(key, value)| format!("{}={}", key, value.as_str().unwrap_or("")))
+                    .collect::<Vec<_>>(),
                 None => Vec::new(),
             };
-            
+
             let django_dockerfile = DjangoDockerfile::new().with_environment(environment_strings);
             let dockerfile_content = django_dockerfile.generate();
-            
+
             // Write Dockerfile to temporary file (don't pollute project directory)
             // Add UUID for extra uniqueness to handle concurrent builds of same project
             let temp_dir = std::env::temp_dir();
             let build_uuid = uuid::Uuid::new_v4();
-            let dockerfile_path = temp_dir.join(format!("Dockerfile.{}.{}.tmp", container_name, build_uuid));
+            let dockerfile_path =
+                temp_dir.join(format!("Dockerfile.{}.{}.tmp", container_name, build_uuid));
             std::fs::write(&dockerfile_path, dockerfile_content).map_err(|err| {
                 tracing::error!("Failed to write temporary Dockerfile: {}", err);
                 err
             })?;
-            
-            tracing::info!("Generated efficient Django Dockerfile at: {:?}", dockerfile_path);
-            
+
+            tracing::info!(
+                "Generated efficient Django Dockerfile at: {:?}",
+                dockerfile_path
+            );
+
             // Build using our generated Dockerfile
             let mut cmd = Command::new("docker");
             cmd.args(&[
@@ -219,7 +234,11 @@ pub async fn build_docker(
 
             // Cleanup: Delete temporary Dockerfile
             if let Err(err) = std::fs::remove_file(&dockerfile_path) {
-                tracing::warn!("Failed to cleanup temporary Dockerfile {:?}: {}", dockerfile_path, err);
+                tracing::warn!(
+                    "Failed to cleanup temporary Dockerfile {:?}: {}",
+                    dockerfile_path,
+                    err
+                );
             } else {
                 tracing::debug!("Cleaned up temporary Dockerfile: {:?}", dockerfile_path);
             }
@@ -336,7 +355,8 @@ pub async fn build_docker(
         FROM projects
         JOIN project_owners ON projects.owner_id = project_owners.id
         WHERE projects.name = $1 AND project_owners.name = $2"#,
-        project_name, owner,
+        project_name,
+        owner,
     )
     .fetch_one(&pool)
     .await
@@ -347,18 +367,24 @@ pub async fn build_docker(
 
     let environment_strings = match envs.environs.as_object() {
         Some(map) => {
-            let environment_strings = map.into_iter().map(|(key, value)| {
-                format!("{}={}", key, value.as_str().unwrap())
-            }).collect::<Vec<_>>();
+            let environment_strings = map
+                .into_iter()
+                .map(|(key, value)| format!("{}={}", key, value.as_str().unwrap()))
+                .collect::<Vec<_>>();
 
             Ok(environment_strings)
-        },
+        }
         None => {
-            tracing::error!("Non object value passed as environment variable {}", container_name);
-            Err(anyhow::anyhow!("Non object value passed as environment variable {}", container_name))
+            tracing::error!(
+                "Non object value passed as environment variable {}",
+                container_name
+            );
+            Err(anyhow::anyhow!(
+                "Non object value passed as environment variable {}",
+                container_name
+            ))
         }
     }?;
-
 
     let config: Config<String> = Config {
         image: Some(image_name.clone()),
@@ -366,14 +392,41 @@ pub async fn build_docker(
         // Auto-add HTTP and HTTPS Traefik routes for student containers.
         labels: Some(HashMap::from([
             ("traefik.enable".to_string(), "true".to_string()),
-            (format!("traefik.http.routers.{}-http.rule", container_name), format!("Host(`{}.{}`)", container_name, get_env::domain())),
-            (format!("traefik.http.routers.{}-http.entrypoints", container_name), "web".to_string()),
-            (format!("traefik.http.routers.{}-http.service", container_name), container_name.to_string()),
-            (format!("traefik.http.routers.{}.rule", container_name), format!("Host(`{}.{}`)", container_name, get_env::domain())),
-            (format!("traefik.http.routers.{}.entrypoints", container_name), "websecure".to_string()),
-            (format!("traefik.http.routers.{}.tls", container_name), "true".to_string()),
-            (format!("traefik.http.routers.{}.service", container_name), container_name.to_string()),
-            (format!("traefik.http.services.{}.loadbalancer.server.port", container_name), "80".to_string()),
+            (
+                format!("traefik.http.routers.{}-http.rule", container_name),
+                format!("Host(`{}.{}`)", container_name, get_env::domain()),
+            ),
+            (
+                format!("traefik.http.routers.{}-http.entrypoints", container_name),
+                "web".to_string(),
+            ),
+            (
+                format!("traefik.http.routers.{}-http.service", container_name),
+                container_name.to_string(),
+            ),
+            (
+                format!("traefik.http.routers.{}.rule", container_name),
+                format!("Host(`{}.{}`)", container_name, get_env::domain()),
+            ),
+            (
+                format!("traefik.http.routers.{}.entrypoints", container_name),
+                "websecure".to_string(),
+            ),
+            (
+                format!("traefik.http.routers.{}.tls", container_name),
+                "true".to_string(),
+            ),
+            (
+                format!("traefik.http.routers.{}.service", container_name),
+                container_name.to_string(),
+            ),
+            (
+                format!(
+                    "traefik.http.services.{}.loadbalancer.server.port",
+                    container_name
+                ),
+                "80".to_string(),
+            ),
         ])),
         host_config: Some(HostConfig {
             restart_policy: Some(RestartPolicy {

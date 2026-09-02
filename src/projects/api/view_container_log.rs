@@ -1,6 +1,6 @@
-use axum::extract::{State, Path};
+use axum::extract::{Path, State};
 use axum::response::Response;
-use bollard::container::{LogsOptions, LogOutput};
+use bollard::container::{LogOutput, LogsOptions};
 use bollard::Docker;
 use futures::StreamExt;
 use hyper::{Body, StatusCode};
@@ -12,7 +12,7 @@ use crate::{auth::Auth, startup::AppState};
 #[derive(Serialize, Debug)]
 struct LogResponse {
     id: Uuid,
-    logs: String
+    logs: String,
 }
 
 #[derive(Serialize, Debug)]
@@ -23,7 +23,12 @@ struct ErrorResponse {
 #[tracing::instrument(skip(auth, pool))]
 pub async fn get(
     auth: Auth,
-    State(AppState { pool, domain, secure, .. }): State<AppState>,
+    State(AppState {
+        pool,
+        domain,
+        secure,
+        ..
+    }): State<AppState>,
     Path((owner, project)): Path<(String, String)>,
 ) -> Response<Body> {
     let _user = auth.current_user.unwrap();
@@ -47,8 +52,9 @@ pub async fn get(
         Ok(Some(record)) => record,
         Ok(None) => {
             let json = serde_json::to_string(&ErrorResponse {
-                message: "Project does not exist".to_string()
-            }).unwrap();
+                message: "Project does not exist".to_string(),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
@@ -59,8 +65,9 @@ pub async fn get(
             tracing::error!(?err, "Can't get projects: Failed to query database");
 
             let json = serde_json::to_string(&ErrorResponse {
-                message: format!("Failed to query database: {}", err.to_string())
-            }).unwrap();
+                message: format!("Failed to query database: {}", err.to_string()),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -78,8 +85,9 @@ pub async fn get(
             tracing::error!(?err, "Failed to connect to docker");
 
             let json = serde_json::to_string(&ErrorResponse {
-                message: format!("Failed to connect to docker: {}", err.to_string())
-            }).unwrap();
+                message: format!("Failed to connect to docker: {}", err.to_string()),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -88,12 +96,15 @@ pub async fn get(
         }
     };
 
-    let log_stream = &mut docker.logs(&project.container_name, Some(LogsOptions {
-        tail: "100",
-        stdout: true,
-        stderr: true,
-        ..Default::default()
-    }));
+    let log_stream = &mut docker.logs(
+        &project.container_name,
+        Some(LogsOptions {
+            tail: "100",
+            stdout: true,
+            stderr: true,
+            ..Default::default()
+        }),
+    );
     let mut logs = String::new();
 
     while let Some(log_result) = log_stream.next().await {
@@ -111,7 +122,8 @@ pub async fn get(
     let json = serde_json::to_string(&LogResponse {
         id: project.id,
         logs: logs,
-    }).unwrap();
+    })
+    .unwrap();
 
     Response::builder()
         .status(StatusCode::OK)

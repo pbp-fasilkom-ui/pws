@@ -1,4 +1,4 @@
-use axum::extract::{State, Path};
+use axum::extract::{Path, State};
 use axum::response::Response;
 use hyper::{Body, StatusCode};
 use serde::Serialize;
@@ -24,7 +24,8 @@ pub async fn get(
     let Some(user) = auth.current_user else {
         let json = serde_json::to_string(&ErrorResponse {
             message: "Unauthorized".to_string(),
-        }).unwrap();
+        })
+        .unwrap();
         return Response::builder()
             .status(StatusCode::UNAUTHORIZED)
             .header(axum::http::header::CONTENT_TYPE, "application/json")
@@ -54,7 +55,8 @@ pub async fn get(
     if !has_access {
         let json = serde_json::to_string(&ErrorResponse {
             message: "Project not found or you don't have access".to_string(),
-        }).unwrap();
+        })
+        .unwrap();
         return Response::builder()
             .status(StatusCode::NOT_FOUND)
             .header(axum::http::header::CONTENT_TYPE, "application/json")
@@ -62,9 +64,7 @@ pub async fn get(
             .unwrap();
     }
 
-    let json = serde_json::to_string(&AccessResponse {
-        has_access: true,
-    }).unwrap();
+    let json = serde_json::to_string(&AccessResponse { has_access: true }).unwrap();
 
     Response::builder()
         .status(StatusCode::OK)

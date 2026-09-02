@@ -4,7 +4,7 @@ use axum::{
 };
 use hyper::{Body, StatusCode};
 use secrecy::ExposeSecret;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 use uuid::Uuid;
 

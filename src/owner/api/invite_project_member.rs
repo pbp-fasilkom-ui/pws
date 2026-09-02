@@ -1,8 +1,8 @@
-use axum::extract::{State, Path};
+use axum::extract::{Path, State};
 use axum::response::Response;
 use axum::Json;
 use hyper::{Body, StatusCode};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{auth::Auth, startup::AppState};
@@ -28,7 +28,8 @@ pub async fn post(
     let Some(user) = auth.current_user else {
         let json = serde_json::to_string(&ErrorResponse {
             message: "Unauthorized".to_string(),
-        }).unwrap();
+        })
+        .unwrap();
         return Response::builder()
             .status(StatusCode::UNAUTHORIZED)
             .header(axum::http::header::CONTENT_TYPE, "application/json")
@@ -51,7 +52,8 @@ pub async fn post(
     let Some(record) = project_record else {
         let json = serde_json::to_string(&ErrorResponse {
             message: "Project not found".to_string(),
-        }).unwrap();
+        })
+        .unwrap();
         return Response::builder()
             .status(StatusCode::NOT_FOUND)
             .header(axum::http::header::CONTENT_TYPE, "application/json")
@@ -62,18 +64,17 @@ pub async fn post(
     let project_id: Uuid = record.get("id");
 
     // Get target user
-    let target_user = sqlx::query(
-        r#"SELECT id FROM users WHERE username = $1"#,
-    )
-    .bind(&req.username)
-    .fetch_optional(&pool)
-    .await
-    .unwrap();
+    let target_user = sqlx::query(r#"SELECT id FROM users WHERE username = $1"#)
+        .bind(&req.username)
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
 
     let Some(user_record) = target_user else {
         let json = serde_json::to_string(&ErrorResponse {
             message: "User not found".to_string(),
-        }).unwrap();
+        })
+        .unwrap();
         return Response::builder()
             .status(StatusCode::BAD_REQUEST)
             .header(axum::http::header::CONTENT_TYPE, "application/json")

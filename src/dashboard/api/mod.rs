@@ -1,7 +1,7 @@
-use crate::{auth::auth, startup::AppState};
 use crate::configuration::Settings;
+use crate::{auth::auth, startup::AppState};
 use axum::routing::get;
-use axum::{Router, middleware};
+use axum::{middleware, Router};
 use axum_extra::routing::RouterExt;
 use hyper::Body;
 

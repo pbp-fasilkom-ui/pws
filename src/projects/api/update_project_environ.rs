@@ -1,4 +1,4 @@
-use axum::extract::{State, Path};
+use axum::extract::{Path, State};
 use axum::response::Response;
 use axum::Json;
 use garde::{Unvalidated, Validate};
@@ -9,23 +9,28 @@ use crate::{auth::Auth, startup::AppState};
 
 #[derive(Deserialize, Validate, Debug)]
 pub struct UpdateProjectEnvironRequest {
-    #[garde(length(min=1))]
+    #[garde(length(min = 1))]
     pub key: String,
-    #[garde(length(min=1))]
+    #[garde(length(min = 1))]
     pub value: String,
 }
 
 #[derive(Serialize, Debug)]
 struct ErrorResponse {
-    message: String
+    message: String,
 }
 
 #[tracing::instrument(skip(auth, pool))]
 pub async fn post(
     auth: Auth,
-    State(AppState { pool, domain, secure, .. }): State<AppState>,
+    State(AppState {
+        pool,
+        domain,
+        secure,
+        ..
+    }): State<AppState>,
     Path((owner, project)): Path<(String, String)>,
-    Json(req): Json<Unvalidated<UpdateProjectEnvironRequest>>
+    Json(req): Json<Unvalidated<UpdateProjectEnvironRequest>>,
 ) -> Response<Body> {
     let _user = auth.current_user.unwrap();
 
@@ -33,8 +38,9 @@ pub async fn post(
         Ok(valid) => valid.into_inner(),
         Err(err) => {
             let json = serde_json::to_string(&ErrorResponse {
-                message: err.to_string()
-            }).unwrap();
+                message: err.to_string(),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
@@ -61,8 +67,9 @@ pub async fn post(
         Ok(Some(record)) => record,
         Ok(None) => {
             let json = serde_json::to_string(&ErrorResponse {
-                message: "Project does not exist".to_string()
-            }).unwrap();
+                message: "Project does not exist".to_string(),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
@@ -73,8 +80,9 @@ pub async fn post(
             tracing::error!(?err, "Can't get projects: Failed to query database");
 
             let json = serde_json::to_string(&ErrorResponse {
-                message: format!("Failed to query database: {}", err.to_string())
-            }).unwrap();
+                message: format!("Failed to query database: {}", err.to_string()),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -82,7 +90,6 @@ pub async fn post(
                 .unwrap();
         }
     };
-
 
     match sqlx::query!(
         r#"UPDATE projects
@@ -94,7 +101,8 @@ pub async fn post(
         project.id
     )
     .execute(&pool)
-    .await {
+    .await
+    {
         Ok(data) => data,
         Err(err) => {
             tracing::error!(
@@ -103,14 +111,15 @@ pub async fn post(
             );
 
             let json = serde_json::to_string(&ErrorResponse {
-                message: "Failed to insert into database".to_string()
-            }).unwrap();
+                message: "Failed to insert into database".to_string(),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::from(json))
                 .unwrap();
-        }    
+        }
     };
 
     Response::builder()

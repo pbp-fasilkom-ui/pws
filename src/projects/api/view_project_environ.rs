@@ -1,4 +1,4 @@
-use axum::extract::{State, Path};
+use axum::extract::{Path, State};
 use axum::response::Response;
 use hyper::{Body, StatusCode};
 use serde::Serialize;
@@ -21,7 +21,12 @@ struct ErrorResponse {
 #[tracing::instrument(skip(auth, pool))]
 pub async fn get(
     auth: Auth,
-    State(AppState { pool, domain, secure, .. }): State<AppState>,
+    State(AppState {
+        pool,
+        domain,
+        secure,
+        ..
+    }): State<AppState>,
     Path((owner, project)): Path<(String, String)>,
 ) -> Response<Body> {
     let _user = auth.current_user.unwrap();
@@ -44,8 +49,9 @@ pub async fn get(
         Ok(Some(record)) => record,
         Ok(None) => {
             let json = serde_json::to_string(&ErrorResponse {
-                message: "Project does not exist".to_string()
-            }).unwrap();
+                message: "Project does not exist".to_string(),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
@@ -56,8 +62,9 @@ pub async fn get(
             tracing::error!(?err, "Can't get projects: Failed to query database");
 
             let json = serde_json::to_string(&ErrorResponse {
-                message: format!("Failed to query database: {}", err.to_string())
-            }).unwrap();
+                message: format!("Failed to query database: {}", err.to_string()),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -69,7 +76,8 @@ pub async fn get(
     let json = serde_json::to_string(&EnvironResponse {
         id: project.id,
         env: project.env,
-    }).unwrap();
+    })
+    .unwrap();
 
     Response::builder()
         .status(StatusCode::OK)

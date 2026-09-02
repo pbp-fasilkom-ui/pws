@@ -1,8 +1,4 @@
-use axum::{
-    extract::State,
-    response::Response,
-    Json,
-};
+use axum::{extract::State, response::Response, Json};
 use garde::{Unvalidated, Validate};
 use hyper::{Body, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -15,10 +11,7 @@ use argon2::{
 };
 use rand::{Rng, SeedableRng};
 
-use crate::{
-    auth::Auth,
-    startup::AppState,
-};
+use crate::{auth::Auth, startup::AppState};
 
 // Base64 url safe
 const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -31,10 +24,10 @@ pub struct CreateProjectRequest {
     #[garde(length(min = 1), pattern(r"^[a-z0-9_-]+$"))]
     pub project: String,
 }
- 
+
 #[derive(Serialize, Debug)]
 struct ErrorResponse {
-    message: String
+    message: String,
 }
 
 #[derive(Serialize, Debug)]
@@ -51,16 +44,21 @@ struct CreateProjectResponse {
 pub async fn post(
     auth: Auth,
     State(AppState {
-        pool, base, domain, secure, ..
+        pool,
+        base,
+        domain,
+        secure,
+        ..
     }): State<AppState>,
     Json(req): Json<Unvalidated<CreateProjectRequest>>,
-) -> Response<Body> {    
+) -> Response<Body> {
     let CreateProjectRequest { owner, project } = match req.validate(&()) {
         Ok(valid) => valid.into_inner(),
         Err(err) => {
             let json = serde_json::to_string(&ErrorResponse {
-                message: err.to_string()
-            }).unwrap();
+                message: err.to_string(),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
@@ -88,9 +86,10 @@ pub async fn post(
         Ok(Some(data)) => data.id,
         Ok(None) => {
             let json = serde_json::to_string(&ErrorResponse {
-                message: "Owner does not exist".to_string()
-            }).unwrap();
-            
+                message: "Owner does not exist".to_string(),
+            })
+            .unwrap();
+
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .body(Body::from(json))
@@ -100,8 +99,9 @@ pub async fn post(
             tracing::error!(?err, "Can't get project_owners: Failed to query database");
 
             let json = serde_json::to_string(&ErrorResponse {
-                message: format!("Failed to query database {}", err.to_string())
-            }).unwrap();
+                message: format!("Failed to query database {}", err.to_string()),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -128,8 +128,11 @@ pub async fn post(
             let project_count = record.0;
             if project_count >= 3 {
                 let json = serde_json::to_string(&ErrorResponse {
-                    message: "Project limit reached. You can only have a maximum of 3 projects per user.".to_string(),
-                }).unwrap();
+                    message:
+                        "Project limit reached. You can only have a maximum of 3 projects per user."
+                            .to_string(),
+                })
+                .unwrap();
 
                 return Response::builder()
                     .status(StatusCode::BAD_REQUEST)
@@ -140,8 +143,9 @@ pub async fn post(
         Err(err) => {
             tracing::error!(?err, "Can't count user projects: Failed to query database");
             let json = serde_json::to_string(&ErrorResponse {
-                message: format!("Failed to query database {}", err.to_string())
-            }).unwrap();
+                message: format!("Failed to query database {}", err.to_string()),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -163,7 +167,8 @@ pub async fn post(
         Ok(_) => {
             let json = serde_json::to_string(&ErrorResponse {
                 message: "Project already exists".to_string(),
-            }).unwrap();
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::CONFLICT)
@@ -173,8 +178,9 @@ pub async fn post(
         Err(err) => {
             tracing::error!(?err, "Can't get projects: Failed to query database");
             let json = serde_json::to_string(&ErrorResponse {
-                message: format!("Failed to query database {}", err.to_string())
-            }).unwrap();
+                message: format!("Failed to query database {}", err.to_string()),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -190,8 +196,9 @@ pub async fn post(
             tracing::error!(?err, "Can't insert user: Failed to begin transaction");
 
             let json = serde_json::to_string(&ErrorResponse {
-                message: format!("Failed to begin transaction {}", err.to_string())
-            }).unwrap();
+                message: format!("Failed to begin transaction {}", err.to_string()),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
@@ -225,8 +232,9 @@ pub async fn post(
             }
 
             let json = serde_json::to_string(&ErrorResponse {
-                message: "Failed to insert into database".to_string()
-            }).unwrap();
+                message: "Failed to insert into database".to_string(),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -238,8 +246,9 @@ pub async fn post(
     if let Err(err) = git2::Repository::init_bare(path) {
         tracing::error!(?err, "Can't create project: Failed to create repo");
         let json = serde_json::to_string(&ErrorResponse {
-            message: format!("Failed to create project: {}", err.to_string())
-        }).unwrap();
+            message: format!("Failed to create project: {}", err.to_string()),
+        })
+        .unwrap();
 
         return Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -274,8 +283,9 @@ pub async fn post(
         );
 
         let json = serde_json::to_string(&ErrorResponse {
-            message: format!("Failed to insert into database {}", err.to_string())
-        }).unwrap();
+            message: format!("Failed to insert into database {}", err.to_string()),
+        })
+        .unwrap();
 
         return Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -287,9 +297,9 @@ pub async fn post(
         tracing::error!(?err, "Can't create project: Failed to commit transaction");
 
         let json = serde_json::to_string(&ErrorResponse {
-            message: format!("Failed to commit transaction: {}", err.to_string())
-        }).unwrap();
-
+            message: format!("Failed to commit transaction: {}", err.to_string()),
+        })
+        .unwrap();
 
         return Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -304,16 +314,15 @@ pub async fn post(
 
     let username = current_user.username;
 
-    let json = serde_json::to_string(
-        &CreateProjectResponse {
-            id: project_id,
-            owner_name: owner.clone(),
-            project_name: project.clone(),
-            domain: format!("{protocol}://{domain}/{owner}/{project}"),
-            git_username: username,
-            git_password: token,
-        }
-    ).unwrap();
+    let json = serde_json::to_string(&CreateProjectResponse {
+        id: project_id,
+        owner_name: owner.clone(),
+        project_name: project.clone(),
+        domain: format!("{protocol}://{domain}/{owner}/{project}"),
+        git_username: username,
+        git_password: token,
+    })
+    .unwrap();
 
     Response::builder()
         .status(StatusCode::OK)

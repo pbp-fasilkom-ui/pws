@@ -1,10 +1,21 @@
-use std::{net::SocketAddr, time::Duration, borrow::Cow};
+use std::{borrow::Cow, net::SocketAddr, time::Duration};
 
-use axum::{extract::{WebSocketUpgrade, Path, ConnectInfo, ws::{Message, CloseFrame}}, TypedHeader, headers, response::IntoResponse};
-use bollard::{Docker, exec::{CreateExecOptions, StartExecResults}};
-use futures_util::{StreamExt, SinkExt};
-use tokio::io::AsyncWriteExt;
+use axum::{
+    extract::{
+        ws::{CloseFrame, Message},
+        ConnectInfo, Path, WebSocketUpgrade,
+    },
+    headers,
+    response::IntoResponse,
+    TypedHeader,
+};
+use bollard::{
+    exec::{CreateExecOptions, StartExecResults},
+    Docker,
+};
+use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use tokio::io::AsyncWriteExt;
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

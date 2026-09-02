@@ -1,20 +1,20 @@
+use crate::auth::Auth;
 use axum::extract::Path;
 use axum::response::Response;
+use bollard::container::{StartContainerOptions, StopContainerOptions};
 use bollard::Docker;
-use bollard::container::{StopContainerOptions, StartContainerOptions};
 use hyper::{Body, StatusCode};
 use serde::Serialize;
-use crate::auth::Auth;
 
 #[derive(Serialize)]
 struct DeleteVolumeSuccessResponse {
-    message: String
+    message: String,
 }
 
 #[derive(Serialize)]
 struct DeleteVolumeErrorResponse {
     message: String,
-    details: Vec<String>
+    details: Vec<String>,
 }
 
 #[tracing::instrument(skip(auth))]
@@ -28,16 +28,17 @@ pub async fn post(auth: Auth, Path((owner, project)): Path<(String, String)>) ->
             if user.username != owner {
                 let json = serde_json::to_string(&DeleteVolumeErrorResponse {
                     message: format!("You are not allowed to delete this project"),
-                    details: vec!(),
-                }).unwrap();
-    
+                    details: vec![],
+                })
+                .unwrap();
+
                 return Response::builder()
                     .status(StatusCode::BAD_REQUEST)
                     .body(Body::from(json))
                     .unwrap();
             }
-        },
-        None => ()
+        }
+        None => (),
     }
 
     let docker = match Docker::connect_with_local_defaults() {
@@ -97,11 +98,10 @@ pub async fn post(auth: Auth, Path((owner, project)): Path<(String, String)>) ->
         }
     }
 
-    let json = serde_json::to_string(
-        &DeleteVolumeSuccessResponse {
-            message: status.to_string()
-        }
-    ).unwrap();
+    let json = serde_json::to_string(&DeleteVolumeSuccessResponse {
+        message: status.to_string(),
+    })
+    .unwrap();
 
     Response::builder()
         .status(StatusCode::OK)

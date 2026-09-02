@@ -1,4 +1,4 @@
-use axum::extract::{State, Path};
+use axum::extract::{Path, State};
 use axum::response::Response;
 use hyper::{Body, StatusCode};
 use serde::Serialize;
@@ -23,13 +23,19 @@ struct ErrorResponse {
 #[tracing::instrument(skip(auth, pool))]
 pub async fn get(
     auth: Auth,
-    State(AppState { pool, domain, secure, .. }): State<AppState>,
+    State(AppState {
+        pool,
+        domain,
+        secure,
+        ..
+    }): State<AppState>,
     Path((owner, project)): Path<(String, String)>,
 ) -> Response<Body> {
     let Some(user) = auth.current_user else {
         let json = serde_json::to_string(&ErrorResponse {
             message: "Unauthorized".to_string(),
-        }).unwrap();
+        })
+        .unwrap();
         return Response::builder()
             .status(StatusCode::UNAUTHORIZED)
             .header(axum::http::header::CONTENT_TYPE, "application/json")
@@ -57,7 +63,11 @@ pub async fn get(
 
     let project_record = match row {
         Ok(Some(r)) => {
-            struct Rec { id: Uuid, project: String, owner: String }
+            struct Rec {
+                id: Uuid,
+                project: String,
+                owner: String,
+            }
             Rec {
                 id: r.get::<Uuid, _>("id"),
                 project: r.get::<String, _>("project"),
@@ -67,7 +77,8 @@ pub async fn get(
         Ok(None) => {
             let json = serde_json::to_string(&ErrorResponse {
                 message: "Project does not exist or you don't have access".to_string(),
-            }).unwrap();
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::NOT_FOUND)
@@ -80,7 +91,8 @@ pub async fn get(
 
             let json = serde_json::to_string(&ErrorResponse {
                 message: "Internal server error".to_string(),
-            }).unwrap();
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -102,7 +114,8 @@ pub async fn get(
         git_url,
         project_name: project_record.project,
         owner_name: project_record.owner,
-    }).unwrap();
+    })
+    .unwrap();
 
     Response::builder()
         .status(StatusCode::OK)

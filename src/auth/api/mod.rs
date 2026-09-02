@@ -1,14 +1,17 @@
-use axum::{routing::{get, post}, Router};
+use axum::{
+    routing::{get, post},
+    Router,
+};
 use axum_extra::routing::RouterExt;
 use hyper::Body;
 
 use crate::{configuration::Settings, startup::AppState};
 
-mod validate;
 mod login;
 mod logout;
 mod register;
 mod sso;
+mod validate;
 
 pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {
     Router::new()

@@ -1,8 +1,8 @@
-use reqwest::{Client}; 
-use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT, HOST};
+use quick_xml::de::from_str;
+use reqwest::header::{HeaderMap, HeaderValue, HOST, USER_AGENT};
+use reqwest::Client;
 use serde::Deserialize;
 use serde::Serialize;
-use quick_xml::de::from_str;
 use thiserror::Error;
 use url::Url;
 
@@ -54,8 +54,6 @@ pub struct CasAttributes {
     #[serde(rename = "npm")]
     pub npm: Option<String>,
 }
-
-
 
 /// CAS client v2
 pub struct CasClient {
@@ -126,24 +124,23 @@ impl CasClient {
         headers.insert(USER_AGENT, HeaderValue::from_static("RustCASClient/0.1"));
         headers.insert(HOST, HeaderValue::from_static("sso.ui.ac.id"));
 
-        let resp_text = self.client
+        let resp_text = self
+            .client
             .get(url)
             .headers(headers)
             .send()
             .await?
             .text()
             .await?;
-        
+
         let parsed: CasServiceResponse = from_str(&resp_text)?;
         if let Some(success) = parsed.success {
             Ok(success)
         } else {
             Err(CasError::InvalidTicket)
         }
-
     }
 }
-
 
 /// Proxy ticket response
 #[derive(Debug, Deserialize)]
@@ -151,4 +148,3 @@ struct ProxyResponse {
     #[serde(rename = "proxyTicket")]
     pub proxy_ticket: Option<String>,
 }
-

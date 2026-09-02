@@ -1,11 +1,12 @@
-use argon2::{Argon2, PasswordHash, PasswordVerifier};
-use axum::{
-    extract::State, response::Response, Json
+use crate::{
+    auth::{Auth, ErrorResponse, RegisterUserErrorType, Secret, User},
+    startup::AppState,
 };
+use argon2::{Argon2, PasswordHash, PasswordVerifier};
+use axum::{extract::State, response::Response, Json};
 use hyper::{Body, StatusCode};
 use secrecy::ExposeSecret;
 use serde::Deserialize;
-use crate::{startup::AppState, auth::{Auth, User, RegisterUserErrorType, ErrorResponse, Secret}};
 
 #[derive(Deserialize)]
 pub struct LoginRequest {
@@ -26,7 +27,8 @@ pub async fn login_user(
             let json = serde_json::to_string(&ErrorResponse {
                 message: "Wrong username or password entered".to_string(),
                 error_type: RegisterUserErrorType::BadRequestError,
-            }).unwrap();
+            })
+            .unwrap();
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .header("Content-Type", "text/html")
@@ -43,7 +45,8 @@ pub async fn login_user(
         let json = serde_json::to_string(&ErrorResponse {
             message: "Wrong username or password entered".to_string(),
             error_type: RegisterUserErrorType::BadRequestError,
-        }).unwrap();
+        })
+        .unwrap();
         return Response::builder()
             .status(StatusCode::BAD_REQUEST)
             .body(Body::from(json))

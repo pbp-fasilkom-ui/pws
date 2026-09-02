@@ -1,4 +1,10 @@
-use std::{collections::HashMap, sync::{Arc, atomic::{AtomicU64, Ordering}}};
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+};
 
 use serde::Serialize;
 use tokio::sync::{broadcast, Mutex, RwLock};

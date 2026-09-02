@@ -1,4 +1,4 @@
-use axum::extract::{State, Path};
+use axum::extract::{Path, State};
 use axum::response::Response;
 use hyper::{Body, StatusCode};
 use serde::Serialize;
@@ -33,21 +33,26 @@ struct ErrorResponse {
 pub async fn post(
     auth: Auth,
     Path((owner, project)): Path<(String, String)>,
-    State(AppState { pool, domain, secure, .. }): State<AppState>,
+    State(AppState {
+        pool,
+        domain,
+        secure,
+        ..
+    }): State<AppState>,
 ) -> Response<Body> {
     let user = match auth.current_user {
         Some(user) => user,
         None => {
             let json = serde_json::to_string(&ErrorResponse {
-                message: "Authentication required. Please log in to access this resource.".to_string(),
-            }).unwrap();
+                message: "Authentication required. Please log in to access this resource."
+                    .to_string(),
+            })
+            .unwrap();
 
-            return Response::builder()
-                .body(Body::from(json))
-                .unwrap();
+            return Response::builder().body(Body::from(json)).unwrap();
         }
     };
-    
+
     let project_id: Uuid = match sqlx::query(
         r#"SELECT DISTINCT projects.id
            FROM projects
@@ -69,7 +74,8 @@ pub async fn post(
         Ok(None) => {
             let json = serde_json::to_string(&ErrorResponse {
                 message: "Project does not exist or you don't have access".to_string(),
-            }).unwrap();
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::NOT_FOUND)
@@ -82,7 +88,8 @@ pub async fn post(
 
             let json = serde_json::to_string(&ErrorResponse {
                 message: "An internal error occurred".to_string(),
-            }).unwrap();
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -104,21 +111,20 @@ pub async fn post(
     // Store password as plain text for easier debugging
     // Keep argon2 imports to avoid compile errors
 
-    match sqlx::query(
-        "UPDATE api_token SET token = $1, updated_at = now() WHERE project_id = $2",
-    )
-    .bind(&new_password)
-    .bind(project_id)
-    .execute(&pool)
-    .await
+    match sqlx::query("UPDATE api_token SET token = $1, updated_at = now() WHERE project_id = $2")
+        .bind(&new_password)
+        .bind(project_id)
+        .execute(&pool)
+        .await
     {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(err) => {
             tracing::error!(?err, "Failed to update password in database");
 
             let json = serde_json::to_string(&ErrorResponse {
                 message: "Failed to update password".to_string(),
-            }).unwrap();
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)

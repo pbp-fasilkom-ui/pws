@@ -1,19 +1,19 @@
-use axum::extract::{State, Path};
+use axum::extract::{Path, State};
 use axum::response::Response;
-use hyper::{Body, StatusCode};
-use serde::{Serialize, Deserialize};
 use chrono::{DateTime, Utc};
+use hyper::{Body, StatusCode};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{auth::Auth, startup::AppState};
 
 #[derive(Serialize, Deserialize, Debug, sqlx::Type)]
-#[sqlx(type_name = "build_state", rename_all = "lowercase")] 
+#[sqlx(type_name = "build_state", rename_all = "lowercase")]
 pub enum BuildState {
     PENDING,
     BUILDING,
     SUCCESSFUL,
-    FAILED
+    FAILED,
 }
 
 #[derive(Serialize, Debug)]
@@ -55,8 +55,9 @@ pub async fn get(
         Ok(Some(record)) => record,
         Ok(None) => {
             let json = serde_json::to_string(&ErrorResponse {
-                error: "Project not found".to_string()
-            }).unwrap();
+                error: "Project not found".to_string(),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::NOT_FOUND)
@@ -67,8 +68,9 @@ pub async fn get(
         Err(err) => {
             tracing::error!(?err, "Failed to query project");
             let json = serde_json::to_string(&ErrorResponse {
-                error: "Database error".to_string()
-            }).unwrap();
+                error: "Database error".to_string(),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -79,7 +81,17 @@ pub async fn get(
     };
 
     // Get latest build status
-    let build = match sqlx::query_as::<_, (Uuid, Uuid, BuildState, DateTime<Utc>, DateTime<Utc>, Option<DateTime<Utc>>)>(
+    let build = match sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            Uuid,
+            BuildState,
+            DateTime<Utc>,
+            DateTime<Utc>,
+            Option<DateTime<Utc>>,
+        ),
+    >(
         r#"SELECT id, project_id, status, created_at, updated_at, finished_at
         FROM builds WHERE project_id = $1
         ORDER BY created_at DESC
@@ -87,14 +99,15 @@ pub async fn get(
     )
     .bind(project_record.0)
     .fetch_one(&pool)
-    .await 
+    .await
     {
         Ok(record) => record,
         Err(err) => {
             tracing::error!(?err, "Failed to query build status");
             let json = serde_json::to_string(&ErrorResponse {
-                error: "Failed to get build status".to_string()
-            }).unwrap();
+                error: "Failed to get build status".to_string(),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)

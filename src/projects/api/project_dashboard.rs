@@ -1,21 +1,21 @@
 use std::fmt;
 
-use axum::extract::{State, Path};
+use axum::extract::{Path, State};
 use axum::response::Response;
 use chrono::{DateTime, Utc};
 use hyper::{Body, StatusCode};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{auth::Auth, startup::AppState};
 
 #[derive(Serialize, Deserialize, Debug, sqlx::Type)]
-#[sqlx(type_name = "build_state", rename_all = "lowercase")] 
+#[sqlx(type_name = "build_state", rename_all = "lowercase")]
 pub enum BuildState {
     PENDING,
     BUILDING,
     SUCCESSFUL,
-    FAILED
+    FAILED,
 }
 
 impl fmt::Display for BuildState {
@@ -46,13 +46,18 @@ struct Build {
 
 #[derive(Serialize, Debug)]
 struct ProjectBuildListResponse {
-    data: Vec<Build>
+    data: Vec<Build>,
 }
 
 #[tracing::instrument(skip(auth, pool))]
 pub async fn get(
     auth: Auth,
-    State(AppState { pool, domain, secure, .. }): State<AppState>,
+    State(AppState {
+        pool,
+        domain,
+        secure,
+        ..
+    }): State<AppState>,
     Path((owner, project)): Path<(String, String)>,
 ) -> Response<Body> {
     let _user = auth.current_user.unwrap();
@@ -76,7 +81,8 @@ pub async fn get(
         Ok(None) => {
             let json = serde_json::to_string(&ErrorResponse {
                 message: "Project does not exist".to_string(),
-            }).unwrap();
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
@@ -88,7 +94,8 @@ pub async fn get(
 
             let json = serde_json::to_string(&ErrorResponse {
                 message: format!("Failed to query database: {}", err.to_string()),
-            }).unwrap();
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
@@ -100,28 +107,30 @@ pub async fn get(
     let build_records = match sqlx::query_as::<_, Build>(
         r#"SELECT id, status, created_at, finished_at, branch, commit_sha
         FROM builds WHERE project_id = $1
-        ORDER BY created_at DESC"#
+        ORDER BY created_at DESC"#,
     )
     .bind(project_record.id)
     .fetch_all(&pool)
-    .await 
+    .await
     {
         Ok(records) => records,
         Err(err) => {
             let json = serde_json::to_string(&ErrorResponse {
                 message: format!("Failed to query database: {}", err.to_string()),
-            }).unwrap();
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::from(json))
                 .unwrap();
-        }, 
+        }
     };
 
     let json = serde_json::to_string(&ProjectBuildListResponse {
-        data: build_records
-    }).unwrap();
+        data: build_records,
+    })
+    .unwrap();
 
     Response::builder()
         .status(StatusCode::OK)
