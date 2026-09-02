@@ -85,19 +85,21 @@ and make sure have `gunicorn` in the `requirements.txt` file.
 
 ### CI/CD Guide
 
-The `CI` GitHub Actions workflow runs backend checks, UI and documentation builds, and a Docker build for pull requests targeting `master`. Clippy, UI lint, and documentation typechecking currently run as advisory checks because the existing `master` branch has baseline findings. The separate `CD` workflow deploys `master` to the production Docker host over SSH.
+The `CI` GitHub Actions workflow runs backend checks, UI and documentation builds, and a Docker build for pull requests targeting `master`. Clippy, UI lint, and documentation typechecking currently run as advisory checks because the existing `master` branch has baseline findings. On pushes to `master`, the container job publishes an immutable image to GHCR tagged with the commit SHA:
 
-The workflow rebuilds the `server` image on the deployment host, allowing Docker to reuse its local dependency layers. To enable this, create a `production` environment and add `DEPLOY_ENABLED=true` as an environment variable. Add these additional environment variables:
+`ghcr.io/pbp-fasilkom-ui/pws:<commit-sha>`
 
-- `DEPLOY_HOST`: production server hostname or IP
-- `DEPLOY_USER`: SSH user
-- `DEPLOY_PATH`: directory containing this repository's `docker-compose.yml` and `.env`
+The `CD` workflow is manual-only. It verifies that a requested commit-tagged image exists and prints the command for deploying it. It does not use a self-hosted runner or connect to the production VM.
 
-Add these environment secrets:
+For manual deployment, make sure the production VM has Docker Compose, `curl`, and this repository checked out. Update the checkout and run the deployment script:
 
-- `DEPLOY_SSH_KEY`: private SSH key for that user
+```bash
+cd /home/admin/pws
+git pull --ff-only origin master
+./scripts/deploy-image.sh <commit-sha>
+```
 
-The deployment host must have Git, Docker Compose, `curl`, and the repository checked out on the `master` branch. The workflow refuses to deploy when the checkout has local changes, fast-forwards it from `origin/master`, rebuilds only the `server` service with a commit-specific local image tag, recreates only that service, and verifies `/health`. If the health check fails, it attempts to restore the previous server image.
+The script pulls the immutable GHCR image, recreates only the `server` service, verifies `/health`, and attempts to restore the previous image if the health check fails. If the GHCR package is private, log in to GHCR on the VM with a read-only package token before running the script. The VM does not need the GitHub Actions SSH secrets for this deployment flow.
 
 ### Setting up the docusaurus
 
