@@ -234,22 +234,25 @@ async fn is_owner_member_matrix() {
     assert!(!is_owner_member(&pool, "nobody", alice()).await.unwrap());
 }
 
-/// Documents current behaviour: the helpers do NOT filter soft-deleted
-/// projects, while redeploy_project.rs and view_project_tree.rs both check
-/// `deleted_at IS NULL` in their own queries. If the helpers gain that filter,
-/// invert these assertions.
+/// Soft-deleted projects must not be reachable through the helpers.
+///
+/// Nothing currently writes `projects.deleted_at` -- `delete_project` issues a
+/// hard DELETE -- so this state is not reachable through the application today.
+/// The assertion exists so that introducing soft deletion cannot silently leave
+/// deleted projects authorized.
 #[tokio::test]
-async fn soft_deleted_projects_are_still_reachable_via_the_helpers() {
-    let pool =
-        skip_without_db!(setup("soft_deleted_projects_are_still_reachable_via_the_helpers").await);
+async fn soft_deleted_projects_are_not_reachable() {
+    let pool = skip_without_db!(setup("soft_deleted_projects_are_not_reachable").await);
 
-    assert!(
-        has_project_access(&pool, "alice", "gone", alice())
-            .await
-            .unwrap(),
-        "soft-deleted project unexpectedly filtered -- update this test if that was intended"
-    );
-    assert!(is_project_owner(&pool, "alice", "gone", alice())
+    assert!(!has_project_access(&pool, "alice", "gone", alice())
+        .await
+        .unwrap());
+    assert!(!is_project_owner(&pool, "alice", "gone", alice())
+        .await
+        .unwrap());
+
+    // The owner's live project is unaffected.
+    assert!(has_project_access(&pool, "alice", "app", alice())
         .await
         .unwrap());
 }

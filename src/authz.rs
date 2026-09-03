@@ -20,6 +20,12 @@ const MAX_SEGMENT_LEN: usize = 255;
 
 /// True if `user_id` may act on `owner/project`, either through `users_owners`
 /// (ownership) or through `project_shares` (an accepted invite).
+///
+/// Soft-deleted projects are excluded, matching `redeploy_project` and
+/// `view_project_tree`. Nothing in the codebase currently writes
+/// `projects.deleted_at` -- `delete_project` issues a hard DELETE -- so this is
+/// defensive: if soft deletion is ever introduced, authorization is already
+/// correct rather than quietly granting access to deleted projects.
 pub async fn has_project_access(
     pool: &PgPool,
     owner: &str,
@@ -33,6 +39,7 @@ pub async fn has_project_access(
            LEFT JOIN project_shares ON projects.id = project_shares.project_id
            WHERE projects.name = $1
              AND project_owners.name = $2
+             AND projects.deleted_at IS NULL
              AND (users_owners.user_id = $3 OR project_shares.user_id = $3)
         "#,
     )
@@ -61,6 +68,7 @@ pub async fn is_project_owner(
            JOIN users_owners ON project_owners.id = users_owners.owner_id
            WHERE projects.name = $1
              AND project_owners.name = $2
+             AND projects.deleted_at IS NULL
              AND users_owners.user_id = $3
         "#,
     )
