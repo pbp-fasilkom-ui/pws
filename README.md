@@ -89,16 +89,16 @@ The `CI` GitHub Actions workflow runs backend checks, UI and documentation build
 
 `ghcr.io/pbp-fasilkom-ui/pws:<commit-sha>`
 
-The `CD` workflow is manual-only. It verifies that a requested commit-tagged image exists and prints the command for deploying it. It does not use a self-hosted runner or connect to the production VM.
+The `CD` workflow is manual-only. It uses a GitHub-hosted runner, connects to the production network through OpenVPN, and deploys over SSH. It does not use a self-hosted runner or depend on GHCR for deployment.
 
-For manual deployment, make sure the production VM has Docker Compose, `curl`, and this repository checked out on the `master` branch with no local changes. The deployment script updates the checkout before deploying:
+For manual deployment, make sure the production VM has Docker Compose, `curl`, and this repository checked out on the `master` branch with no local changes. The local-build deployment script updates the checkout before deploying:
 
 ```bash
 cd /home/admin/pws
-./scripts/deploy-image.sh <commit-sha>
+./scripts/deploy-local.sh [expected-commit-sha]
 ```
 
-The script verifies the checkout, fast-forward pulls `origin/master`, pulls the immutable GHCR image, recreates only the `server` service, verifies `/health`, and attempts to restore the previous image if the health check fails. If the GHCR package is private, log in to GHCR on the VM with a read-only package token before running the script. The VM does not need the GitHub Actions SSH secrets for this deployment flow.
+The script verifies the checkout, fast-forward pulls `origin/master`, builds an image locally using Docker's build cache, recreates only the `server` service, verifies `/health`, and attempts to restore the previous image if the health check fails. The optional commit SHA prevents deploying a different `master` revision than the one selected by CD. The VM does not need GHCR credentials for this deployment flow.
 
 ### Setting up the docusaurus
 
