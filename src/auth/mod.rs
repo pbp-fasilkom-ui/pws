@@ -20,7 +20,11 @@ use crate::configuration::Settings;
 use lazy_static::lazy_static;
 
 lazy_static! {
-    static ref USERNAME_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9.]+$").unwrap();
+    // Usernames become an owner namespace, which becomes a directory name under
+    // the git repository root. Dots are permitted because SSO usernames contain
+    // them, but a name may not start with one and may not contain `..`, so
+    // traversal is not representable.
+    static ref USERNAME_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9][a-zA-Z0-9.]*$").unwrap();
 }
 
 pub mod api;
@@ -158,8 +162,14 @@ fn password_check(value: &Secret<String>, _ctx: &()) -> garde::Result {
 fn username_check(value: &str, _ctx: &()) -> garde::Result {
     if !USERNAME_REGEX.is_match(value) {
         return Err(garde::Error::new(
-            "Username can only contain alphanumeric characters and dots",
+            "Username must start with a letter or digit and can only contain alphanumeric characters and dots",
         ));
+    }
+    if value.contains("..") {
+        return Err(garde::Error::new("Username cannot contain '..'"));
+    }
+    if value.len() > 255 {
+        return Err(garde::Error::new("Username is too long"));
     }
     Ok(())
 }

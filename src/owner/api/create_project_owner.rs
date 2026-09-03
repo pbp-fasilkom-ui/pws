@@ -12,7 +12,11 @@ use crate::{auth::Auth, startup::AppState};
 // TODO: separate schema for create and update when needed later on
 #[derive(Deserialize, Validate, Debug)]
 pub struct CreateProjectOwnerRequest {
-    #[garde(length(max = 128))]
+    // Owner names become a path segment under the git repository root and part
+    // of a container name, so they need the same charset restriction that
+    // project names already had. Dots stay permitted because usernames contain
+    // them, but a leading dot and `..` are not representable.
+    #[garde(length(min = 1, max = 128), pattern(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$"))]
     pub name: String,
 }
 

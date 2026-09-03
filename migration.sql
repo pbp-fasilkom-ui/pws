@@ -16,3 +16,18 @@ CREATE TABLE IF NOT EXISTS project_shares (
 ALTER TABLE builds
   ADD COLUMN IF NOT EXISTS branch TEXT,
   ADD COLUMN IF NOT EXISTS commit_sha TEXT;
+
+-- Migration: Prevent owner-namespace squatting.
+-- project_owners.name had no uniqueness constraint, so the check-then-insert in
+-- create_project_owner was a TOCTOU, and register_user rejects a username that
+-- collides with an existing owner row -- meaning pre-created rows could block
+-- legitimate registrations.
+-- Remove any duplicate rows that are not referenced before adding the index.
+DELETE FROM project_owners a
+  USING project_owners b
+  WHERE a.ctid > b.ctid
+    AND a.name = b.name
+    AND NOT EXISTS (SELECT 1 FROM projects WHERE projects.owner_id = a.id)
+    AND NOT EXISTS (SELECT 1 FROM users_owners WHERE users_owners.owner_id = a.id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS project_owners_name_key ON project_owners (name);
