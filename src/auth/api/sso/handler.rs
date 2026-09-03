@@ -14,10 +14,27 @@ use std::collections::HashSet;
 use ulid::Ulid;
 use uuid::Uuid;
 
-#[tracing::instrument(skip(auth, pool))]
+/// Service URLs this deployment will ask CAS to validate a ticket against.
+///
+/// CAS binds a ticket to the service it was issued for and validates against
+/// whatever `service` the caller passes. Accepting a client-supplied value
+/// therefore let an attacker present a ticket minted for a service they control
+/// and have it validated here, logging them in as its owner.
+fn allowed_service_urls(domain: &str) -> [String; 4] {
+    [
+        "http://localhost:8080/web/sso".to_string(),
+        "http://localhost:5173/web/sso".to_string(),
+        format!("https://{domain}/web/sso"),
+        format!("http://{domain}/web/sso"),
+    ]
+}
+
+// `req` carries the CAS service ticket, so it must not be recorded as a span
+// field.
+#[tracing::instrument(skip(auth, pool, req))]
 pub async fn handle_callback(
     auth: Auth,
-    State(AppState { pool, .. }): State<AppState>,
+    State(AppState { pool, domain, .. }): State<AppState>,
     Json(req): Json<Unvalidated<SsoCallbackRequest>>,
 ) -> Response<Body> {
     // Validate oncoming request
@@ -36,6 +53,16 @@ pub async fn handle_callback(
         }
     };
 
+    if !allowed_service_urls(&domain).contains(&service_url) {
+        tracing::warn!(%service_url, "Rejected SSO callback with unrecognised service URL");
+        let body = serde_json::to_string(&json!({ "error": "Invalid service URL" })).unwrap();
+        return Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .header("Content-Type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+    }
+
     let cas_server_url = "https://sso.ui.ac.id/cas2/";
     let client = CasClient::new(service_url.clone(), cas_server_url, None);
 
@@ -43,7 +70,7 @@ pub async fn handle_callback(
     let profile = match client.verify_ticket(&ticket).await {
         Ok(p) => p,
         Err(err) => {
-            eprintln!("CAS verification failed: {:?}", err);
+            tracing::warn!(?err, "CAS verification failed");
             let body = serde_json::to_string(&json!({ "error": "Invalid ticket" })).unwrap();
             return Response::builder()
                 .status(StatusCode::BAD_REQUEST)
@@ -53,7 +80,7 @@ pub async fn handle_callback(
         }
     };
 
-    tracing::warn!(?profile);
+    tracing::debug!(username = %profile.username, "CAS ticket verified");
 
     // Lookup or create local user
     let username = &profile.username;
