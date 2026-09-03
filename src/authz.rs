@@ -167,7 +167,10 @@ pub fn container_name(owner: &str, project: &str) -> Result<String, String> {
 
     let name = format!("{owner}-{repo}").replace('.', "-");
 
-    if name.to_ascii_lowercase().ends_with(RESERVED_CONTAINER_SUFFIX) {
+    if name
+        .to_ascii_lowercase()
+        .ends_with(RESERVED_CONTAINER_SUFFIX)
+    {
         return Err("resolves to a reserved infrastructure container name".to_string());
     }
 

@@ -99,7 +99,10 @@ pub async fn post(
                 .unwrap();
         }
         Err(err) => {
-            tracing::error!(?err, "Can't create project: Failed to check owner membership");
+            tracing::error!(
+                ?err,
+                "Can't create project: Failed to check owner membership"
+            );
             let json = serde_json::to_string(&ErrorResponse {
                 message: "Failed to query database".to_string(),
             })

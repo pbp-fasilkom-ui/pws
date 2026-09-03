@@ -99,11 +99,12 @@ async fn main() {
             }
         };
 
-        if let Err(err) = sqlx::query("UPDATE users SET password = $1, updated_at = now() WHERE id = $2")
-            .bind(&hash)
-            .bind(id)
-            .execute(&pool)
-            .await
+        if let Err(err) =
+            sqlx::query("UPDATE users SET password = $1, updated_at = now() WHERE id = $2")
+                .bind(&hash)
+                .bind(id)
+                .execute(&pool)
+                .await
         {
             eprintln!("Failed to update {username}: {err:?}");
             process::exit(1);

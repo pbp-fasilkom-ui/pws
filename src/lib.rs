@@ -10,5 +10,6 @@ pub mod git;
 pub mod owner;
 pub mod projects;
 pub mod queue;
+pub mod rate_limit;
 pub mod startup;
 pub mod telemetry;
