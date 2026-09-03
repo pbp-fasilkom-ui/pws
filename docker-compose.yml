@@ -205,6 +205,12 @@ services:
       # /api/rawdata returned the full routing table and internal service map.
       # Kept enabled but published on loopback only (see ports below).
       - --api.insecure=true
+      # Only the docker networks may supply forwarded headers; values arriving
+      # from anywhere else are replaced rather than appended to. Together with
+      # taking the right-most X-Forwarded-For entry in src/rate_limit.rs, this
+      # stops a caller choosing its own rate-limit bucket.
+      - --entrypoints.web.forwardedHeaders.trustedIPs=172.20.0.0/16,172.21.0.0/16
+      - --entrypoints.websecure.forwardedHeaders.trustedIPs=172.20.0.0/16,172.21.0.0/16
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
       - --accesslog=true

@@ -45,8 +45,13 @@ impl RateLimiter {
 
         buckets.retain(|_, (started, _)| now.duration_since(*started) < WINDOW);
 
+        // Fail CLOSED when the table is full. Returning "allowed" here let an
+        // attacker switch the limiter off -- for themselves and for everyone
+        // else -- with roughly MAX_TRACKED cheap requests carrying distinct
+        // keys.
         if buckets.len() >= MAX_TRACKED && !buckets.contains_key(&ip) {
-            return true;
+            tracing::warn!("Rate limiter table is full; rejecting unseen clients");
+            return false;
         }
 
         let entry = buckets.entry(ip).or_insert((now, 0));
@@ -61,15 +66,21 @@ impl RateLimiter {
 
 /// Client address for rate-limiting purposes.
 ///
-/// In production the service sits behind Traefik, so the peer address is the
-/// proxy and every request would share one bucket. Prefer the left-most
-/// `X-Forwarded-For` entry, which the proxy sets; this assumes the service is
-/// not reachable directly, which is also what the deployment intends.
+/// The service sits behind Traefik, so the peer address is the proxy and every
+/// request would otherwise share a single bucket.
+///
+/// Takes the RIGHT-most `X-Forwarded-For` entry, not the left-most. Traefik
+/// *appends* the address it observed to any header the client already sent, so
+/// a request arriving with `X-Forwarded-For: 1.2.3.4` reaches this service as
+/// `1.2.3.4, <real client>`. The left-most entry is therefore entirely
+/// attacker-controlled: rotating it defeated the limiter outright and could
+/// also flood the tracking table. The right-most entry is the one Traefik
+/// itself appended, so it is the last value a client cannot forge.
 fn client_ip(headers: &HeaderMap, peer: SocketAddr) -> IpAddr {
     headers
         .get("x-forwarded-for")
         .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.split(',').next())
+        .and_then(|value| value.rsplit(',').next())
         .and_then(|value| value.trim().parse::<IpAddr>().ok())
         .unwrap_or_else(|| peer.ip())
 }
@@ -123,18 +134,60 @@ mod tests {
     }
 
     #[test]
-    fn prefers_forwarded_header_over_peer() {
+    fn uses_the_proxy_appended_forwarded_entry_not_the_client_supplied_one() {
+        // Traefik appends what it saw, so the last entry is trustworthy and
+        // everything to its left was supplied by the caller.
         let mut headers = HeaderMap::new();
-        headers.insert("x-forwarded-for", "198.51.100.7, 10.0.0.1".parse().unwrap());
+        headers.insert("x-forwarded-for", "1.2.3.4, 203.0.113.9".parse().unwrap());
         let peer: SocketAddr = "10.0.0.1:5000".parse().unwrap();
 
         assert_eq!(
             client_ip(&headers, peer),
-            "198.51.100.7".parse::<IpAddr>().unwrap()
+            "203.0.113.9".parse::<IpAddr>().unwrap(),
+            "a spoofed left-most entry must not become the bucket key"
         );
+    }
+
+    #[test]
+    fn falls_back_to_the_peer_without_a_forwarded_header() {
+        let peer: SocketAddr = "10.0.0.1:5000".parse().unwrap();
         assert_eq!(
             client_ip(&HeaderMap::new(), peer),
             "10.0.0.1".parse::<IpAddr>().unwrap()
         );
+    }
+
+    #[test]
+    fn a_spoofed_header_cannot_reset_the_bucket() {
+        let limiter = RateLimiter::new();
+        let mut headers = HeaderMap::new();
+        let peer: SocketAddr = "10.0.0.1:5000".parse().unwrap();
+
+        // Same real client, rotating the forgeable prefix on every request.
+        for i in 0..(MAX_REQUESTS + 5) {
+            headers.insert(
+                "x-forwarded-for",
+                format!("9.9.9.{i}, 203.0.113.9").parse().unwrap(),
+            );
+            let ip = client_ip(&headers, peer);
+            let allowed = limiter.check(ip);
+            if i >= MAX_REQUESTS {
+                assert!(!allowed, "request {i} should have been limited");
+            }
+        }
+    }
+
+    #[test]
+    fn a_full_table_fails_closed() {
+        let limiter = RateLimiter::new();
+        for i in 0..MAX_TRACKED {
+            let ip: IpAddr = format!("10.{}.{}.{}", i / 65536, (i / 256) % 256, i % 256)
+                .parse()
+                .unwrap();
+            limiter.check(ip);
+        }
+        // An unseen key must now be rejected, not waved through.
+        let fresh: IpAddr = "203.0.113.200".parse().unwrap();
+        assert!(!limiter.check(fresh));
     }
 }
