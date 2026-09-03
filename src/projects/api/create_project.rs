@@ -324,14 +324,34 @@ pub async fn post(
         })
         .collect::<String>();
 
-    // Store token as plain text for easier debugging
-    // Keep argon2 imports to avoid compile errors
+    // Stored hashed; the plaintext is returned to the caller once, below, and
+    // is not recoverable afterwards.
+    let token_hash = {
+        let salt = SaltString::generate(&mut OsRng);
+        match Argon2::default().hash_password(token.as_bytes(), &salt) {
+            Ok(hash) => hash.to_string(),
+            Err(err) => {
+                tracing::error!(?err, "Can't create project: Failed to hash git token");
+
+                let json = serde_json::to_string(&ErrorResponse {
+                    message: "Failed to create project".to_string(),
+                })
+                .unwrap();
+
+                return Response::builder()
+                    .status(StatusCode::INTERNAL_SERVER_ERROR)
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(json))
+                    .unwrap();
+            }
+        }
+    };
 
     if let Err(err) = sqlx::query!(
         "INSERT INTO api_token (id, project_id, token) VALUES ($1, $2, $3)",
         Uuid::from(Ulid::new()),
         project_id,
-        token,
+        token_hash,
     )
     .execute(&mut *tx)
     .await

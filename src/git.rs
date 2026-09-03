@@ -125,12 +125,12 @@ async fn basic_auth<B>(
             // stdout is scraped into Loki, which Grafana can query.
             tracing::debug!(%owner_name, %repo, "Git auth attempt");
 
-            let authenticated = tokens.iter().any(|rec| {
-                let authorization_match =
-                    rec.project_name == repo && rec.project_owner == owner_name;
-
-                authorization_match && constant_time_eq(rec.token.as_bytes(), token.as_bytes())
-            });
+            // Check the cheap string comparisons first so that at most one
+            // Argon2 verification runs per request.
+            let authenticated = tokens
+                .iter()
+                .filter(|rec| rec.project_name == repo && rec.project_owner == owner_name)
+                .any(|rec| verify_token(token, &rec.token));
 
             if !authenticated {
                 return Err(auth_failed);
@@ -141,19 +141,24 @@ async fn basic_auth<B>(
     }
 }
 
-/// Compares two byte strings without short-circuiting on the first difference.
+/// Verifies a presented git token against the stored Argon2 hash.
 ///
-/// Tokens are currently stored in plaintext, so a naive `==` leaks their
-/// contents through response timing.
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
+/// Tokens used to be stored and compared as plaintext, so anything that could
+/// read the database or the logs obtained working push credentials, and the
+/// `==` comparison also leaked their contents through response timing.
+///
+/// A stored value that is not a valid PHC string is refused rather than
+/// compared literally: that would reintroduce plaintext comparison for any row
+/// the migration missed.
+fn verify_token(presented: &str, stored: &str) -> bool {
+    let Ok(parsed) = PasswordHash::new(stored) else {
+        tracing::error!("Stored git token is not a valid hash; refusing to authenticate");
         return false;
-    }
+    };
 
-    a.iter()
-        .zip(b.iter())
-        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
-        == 0
+    Argon2::default()
+        .verify_password(presented.as_bytes(), &parsed)
+        .is_ok()
 }
 
 pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
