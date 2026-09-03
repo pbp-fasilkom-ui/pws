@@ -326,26 +326,7 @@ pub async fn post(
 
     // Stored hashed; the plaintext is returned to the caller once, below, and
     // is not recoverable afterwards.
-    let token_hash = {
-        let salt = SaltString::generate(&mut OsRng);
-        match Argon2::default().hash_password(token.as_bytes(), &salt) {
-            Ok(hash) => hash.to_string(),
-            Err(err) => {
-                tracing::error!(?err, "Can't create project: Failed to hash git token");
-
-                let json = serde_json::to_string(&ErrorResponse {
-                    message: "Failed to create project".to_string(),
-                })
-                .unwrap();
-
-                return Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .header("Content-Type", "application/json")
-                    .body(Body::from(json))
-                    .unwrap();
-            }
-        }
-    };
+    let token_hash = crate::tokens::hash_token(&token);
 
     if let Err(err) = sqlx::query!(
         "INSERT INTO api_token (id, project_id, token) VALUES ($1, $2, $3)",
@@ -398,7 +379,7 @@ pub async fn post(
         owner_name: owner.clone(),
         project_name: project.clone(),
         domain: format!("{protocol}://{domain}/{owner}/{project}"),
-        git_username: username,
+        git_username: owner.clone(),
         git_password: token,
     })
     .unwrap();

@@ -87,7 +87,9 @@ async fn setup(test_name: &str) -> Option<PgPool> {
 
     // Swap the database component to reach the maintenance database, which is
     // where CREATE DATABASE has to be issued from.
-    let (server, _) = url.rsplit_once('/').expect("TEST_DATABASE_URL must include a database");
+    let (server, _) = url
+        .rsplit_once('/')
+        .expect("TEST_DATABASE_URL must include a database");
     let admin_url = format!("{server}/postgres");
     let db_name = format!("pws_test_{test_name}");
     let test_url = format!("{server}/{db_name}");
@@ -105,7 +107,9 @@ async fn setup(test_name: &str) -> Option<PgPool> {
         .expect("create test database");
     admin.close().await;
 
-    let pool = PgPool::connect(&test_url).await.expect("connect to test database");
+    let pool = PgPool::connect(&test_url)
+        .await
+        .expect("connect to test database");
     pool.execute(SCHEMA).await.expect("apply schema.sql");
     pool.execute(MIGRATION).await.expect("apply migration.sql");
     pool.execute(FIXTURE).await.expect("load fixture");
@@ -130,25 +134,41 @@ async fn has_project_access_matrix() {
     let pool = skip_without_db!(setup("has_project_access_matrix").await);
 
     // Owner of the namespace.
-    assert!(has_project_access(&pool, "alice", "app", alice()).await.unwrap());
+    assert!(has_project_access(&pool, "alice", "app", alice())
+        .await
+        .unwrap());
     // Holder of a share on the project.
-    assert!(has_project_access(&pool, "alice", "app", carol()).await.unwrap());
+    assert!(has_project_access(&pool, "alice", "app", carol())
+        .await
+        .unwrap());
 
     // A user who is BOTH a namespace member and a share holder matches on more
     // than one join row. Guards against fetch_optional rejecting multiple rows,
     // which would deny a legitimate user, since every call site treats Err as
     // deny.
-    assert!(has_project_access(&pool, "alice", "app", eve()).await.unwrap());
+    assert!(has_project_access(&pool, "alice", "app", eve())
+        .await
+        .unwrap());
 
     // A project with several shares likewise multiplies rows.
-    assert!(has_project_access(&pool, "alice", "multi", carol()).await.unwrap());
-    assert!(has_project_access(&pool, "alice", "multi", dave()).await.unwrap());
+    assert!(has_project_access(&pool, "alice", "multi", carol())
+        .await
+        .unwrap());
+    assert!(has_project_access(&pool, "alice", "multi", dave())
+        .await
+        .unwrap());
 
     // Member of a different namespace.
-    assert!(!has_project_access(&pool, "alice", "app", bob()).await.unwrap());
+    assert!(!has_project_access(&pool, "alice", "app", bob())
+        .await
+        .unwrap());
     // No relationship at all.
-    assert!(!has_project_access(&pool, "alice", "app", dave()).await.unwrap());
-    assert!(!has_project_access(&pool, "alice", "multi", bob()).await.unwrap());
+    assert!(!has_project_access(&pool, "alice", "app", dave())
+        .await
+        .unwrap());
+    assert!(!has_project_access(&pool, "alice", "multi", bob())
+        .await
+        .unwrap());
 }
 
 /// The case the old git-auth bug turned on: two owners with a same-named
@@ -157,11 +177,19 @@ async fn has_project_access_matrix() {
 async fn same_project_name_under_two_owners_is_not_confused() {
     let pool = skip_without_db!(setup("same_project_name_under_two_owners_is_not_confused").await);
 
-    assert!(has_project_access(&pool, "alice", "app", alice()).await.unwrap());
-    assert!(has_project_access(&pool, "bob", "app", bob()).await.unwrap());
+    assert!(has_project_access(&pool, "alice", "app", alice())
+        .await
+        .unwrap());
+    assert!(has_project_access(&pool, "bob", "app", bob())
+        .await
+        .unwrap());
 
-    assert!(!has_project_access(&pool, "bob", "app", alice()).await.unwrap());
-    assert!(!has_project_access(&pool, "alice", "app", bob()).await.unwrap());
+    assert!(!has_project_access(&pool, "bob", "app", alice())
+        .await
+        .unwrap());
+    assert!(!has_project_access(&pool, "alice", "app", bob())
+        .await
+        .unwrap());
 }
 
 /// Owner names are compared exactly; a name differing only by case is a
@@ -170,7 +198,9 @@ async fn same_project_name_under_two_owners_is_not_confused() {
 async fn owner_name_comparison_is_case_sensitive() {
     let pool = skip_without_db!(setup("owner_name_comparison_is_case_sensitive").await);
 
-    assert!(!has_project_access(&pool, "Alice", "app", alice()).await.unwrap());
+    assert!(!has_project_access(&pool, "Alice", "app", alice())
+        .await
+        .unwrap());
     assert!(!is_owner_member(&pool, "Alice", alice()).await.unwrap());
     assert!(is_owner_member(&pool, "alice", alice()).await.unwrap());
 }
@@ -181,9 +211,15 @@ async fn owner_name_comparison_is_case_sensitive() {
 async fn is_project_owner_rejects_share_holders() {
     let pool = skip_without_db!(setup("is_project_owner_rejects_share_holders").await);
 
-    assert!(is_project_owner(&pool, "alice", "app", alice()).await.unwrap());
-    assert!(!is_project_owner(&pool, "alice", "app", carol()).await.unwrap());
-    assert!(!is_project_owner(&pool, "bob", "app", alice()).await.unwrap());
+    assert!(is_project_owner(&pool, "alice", "app", alice())
+        .await
+        .unwrap());
+    assert!(!is_project_owner(&pool, "alice", "app", carol())
+        .await
+        .unwrap());
+    assert!(!is_project_owner(&pool, "bob", "app", alice())
+        .await
+        .unwrap());
 }
 
 #[tokio::test]
@@ -204,11 +240,16 @@ async fn is_owner_member_matrix() {
 /// invert these assertions.
 #[tokio::test]
 async fn soft_deleted_projects_are_still_reachable_via_the_helpers() {
-    let pool = skip_without_db!(setup("soft_deleted_projects_are_still_reachable_via_the_helpers").await);
+    let pool =
+        skip_without_db!(setup("soft_deleted_projects_are_still_reachable_via_the_helpers").await);
 
     assert!(
-        has_project_access(&pool, "alice", "gone", alice()).await.unwrap(),
+        has_project_access(&pool, "alice", "gone", alice())
+            .await
+            .unwrap(),
         "soft-deleted project unexpectedly filtered -- update this test if that was intended"
     );
-    assert!(is_project_owner(&pool, "alice", "gone", alice()).await.unwrap());
+    assert!(is_project_owner(&pool, "alice", "gone", alice())
+        .await
+        .unwrap());
 }

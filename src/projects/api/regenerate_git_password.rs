@@ -110,26 +110,7 @@ pub async fn post(
 
     // Stored hashed. The plaintext is returned once in this response and is
     // not recoverable afterwards -- get_git_credentials never returned it.
-    let password_hash = {
-        let salt = SaltString::generate(&mut OsRng);
-        match Argon2::default().hash_password(new_password.as_bytes(), &salt) {
-            Ok(hash) => hash.to_string(),
-            Err(err) => {
-                tracing::error!(?err, "Failed to hash new git password");
-
-                let json = serde_json::to_string(&ErrorResponse {
-                    message: "Failed to update password".to_string(),
-                })
-                .unwrap();
-
-                return Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .header(axum::http::header::CONTENT_TYPE, "application/json")
-                    .body(Body::from(json))
-                    .unwrap();
-            }
-        }
-    };
+    let password_hash = crate::tokens::hash_token(&new_password);
 
     match sqlx::query("UPDATE api_token SET token = $1, updated_at = now() WHERE project_id = $2")
         .bind(&password_hash)

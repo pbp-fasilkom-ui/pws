@@ -43,6 +43,36 @@ async fn main() {
         process::exit(1);
     }
 
+    // Refuse to start quietly on an unmigrated database. verify_token rejects
+    // any api_token row that is not a SHA-256 digest, so deploying without
+    // running migrate_git_tokens silently revokes git push for every existing
+    // project while /health keeps returning 200 -- the deploy script's rollback
+    // would never fire and the breakage would surface only as student reports.
+    match sqlx::query_scalar::<_, i64>(
+        r#"SELECT count(*) FROM api_token
+           JOIN projects ON api_token.project_id = projects.id
+           WHERE projects.deleted_at IS NULL
+             AND api_token.token NOT LIKE 'sha256:%'"#,
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(0) => {}
+        Ok(unconverted) => {
+            tracing::error!(
+                unconverted,
+                "Refusing to start: {unconverted} git token(s) are not hashed, so every push \
+                 to those projects would fail. Run: docker compose run --rm --entrypoint \
+                 /app/migrate_git_tokens server --hash"
+            );
+            process::exit(1);
+        }
+        Err(err) => {
+            tracing::error!(?err, "Failed to check git token migration state");
+            process::exit(1);
+        }
+    }
+
     // Atlas migration check removed - using schema.sql initialization instead
 
     // check docker permissions

@@ -6,10 +6,6 @@ use std::{
     process::{Output, Stdio},
 };
 
-use argon2::{
-    password_hash::{PasswordHash, PasswordVerifier},
-    Argon2,
-};
 use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
     middleware::{self, Next},
@@ -130,7 +126,7 @@ async fn basic_auth<B>(
             let authenticated = tokens
                 .iter()
                 .filter(|rec| rec.project_name == repo && rec.project_owner == owner_name)
-                .any(|rec| verify_token(token, &rec.token));
+                .any(|rec| crate::tokens::verify_token(token, &rec.token));
 
             if !authenticated {
                 return Err(auth_failed);
@@ -139,26 +135,6 @@ async fn basic_auth<B>(
             Ok(next.run(request).await)
         }
     }
-}
-
-/// Verifies a presented git token against the stored Argon2 hash.
-///
-/// Tokens used to be stored and compared as plaintext, so anything that could
-/// read the database or the logs obtained working push credentials, and the
-/// `==` comparison also leaked their contents through response timing.
-///
-/// A stored value that is not a valid PHC string is refused rather than
-/// compared literally: that would reintroduce plaintext comparison for any row
-/// the migration missed.
-fn verify_token(presented: &str, stored: &str) -> bool {
-    let Ok(parsed) = PasswordHash::new(stored) else {
-        tracing::error!("Stored git token is not a valid hash; refusing to authenticate");
-        return false;
-    };
-
-    Argon2::default()
-        .verify_password(presented.as_bytes(), &parsed)
-        .is_ok()
 }
 
 pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {

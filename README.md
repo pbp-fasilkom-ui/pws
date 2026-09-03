@@ -119,23 +119,39 @@ fail to start or will lock users out.
 `project_owners.name`. It removes unreferenced duplicate rows first; if it
 fails, resolve the remaining duplicates by hand before retrying.
 
-**One-off maintenance tasks.** Two binaries, both dry-run by default:
+**One-off maintenance tasks.** Two binaries, both dry-run by default. They are
+shipped inside the application image and must run there: the database is
+reachable only from the control-plane network, and they read the
+`configuration.yml` mounted at `/app/configuration.yml`. Running them from the
+VM host will not reach the database.
 
 ```bash
+# Git push tokens were stored in plaintext and logged on every push.
+#   --hash        keeps every credential working, but a token that already
+#                 leaked stays valid until that project regenerates it.
+#   --invalidate  revokes them immediately, which breaks every configured git
+#                 remote until each owner regenerates from project settings.
+#                 No replacement password is printed -- the regenerate endpoint
+#                 is the only thing that can show one.
+docker compose run --rm --entrypoint /app/migrate_git_tokens server --hash
+
 # SSO accounts used to have their password derived from their username.
 # Reports affected accounts; --apply invalidates those hashes.
-cargo run --bin invalidate_weak_passwords -- --apply
-
-# Git push tokens were stored in plaintext and logged on every push.
-# --hash keeps each credential working; --rotate issues new ones, which
-# invalidates leaked tokens but breaks every configured git remote until
-# its owner copies the new password from project settings.
-cargo run --bin migrate_git_tokens -- --hash
+docker compose run --rm --entrypoint /app/invalidate_weak_passwords server --apply
 ```
 
-Run `migrate_git_tokens` before deploying the new server: it verifies tokens as
-Argon2 hashes and refuses a plaintext value, so pushes fail until the rows are
-converted.
+Run `migrate_git_tokens` **before** the new server serves traffic: it accepts
+only a stored SHA-256 digest and refuses a plaintext value, so pushes fail until
+the rows are converted. The server now counts unconverted rows at startup and
+refuses to boot while any remain, rather than starting healthy and silently
+rejecting every push — but that means an unmigrated deploy fails its health
+check and rolls back, so schedule the migration first.
+
+Note `invalidate_weak_passwords` also catches password-registered users who
+chose their username as their password, and there is no self-service password
+reset in this codebase. Read the dry-run output before applying: SSO users
+recover by signing in through CAS, but a password-only account caught by it has
+to be reset with direct SQL.
 
 **Check for names the new validation rejects.** Owner and project names are now
 refused if they start with a dot or contain `..`, since both become filesystem
