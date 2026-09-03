@@ -190,7 +190,7 @@ pub async fn build_docker(
             let environment_strings = match envs.environs.as_object() {
                 Some(map) => map
                     .into_iter()
-                    .map(|(key, value)| format!("{}={}", key, value.as_str().unwrap_or("")))
+                    .map(|(key, value)| (key.clone(), value.as_str().unwrap_or("").to_string()))
                     .collect::<Vec<_>>(),
                 None => Vec::new(),
             };

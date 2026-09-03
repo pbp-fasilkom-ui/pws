@@ -5,7 +5,7 @@ use std::{
     thread::available_parallelism,
 };
 
-use axum_session::SessionConfig;
+use axum_session::{Key, SameSite, SecurityMode, SessionConfig};
 use byte_unit::Byte;
 use chrono::Duration;
 use config::{Config, ConfigError};
@@ -67,6 +67,13 @@ pub struct AuthSettings {
     pub secure: bool,
     /// in days
     pub maxlifespan: i64,
+    /// Secret used to encrypt the session cookie, at least 64 bytes.
+    ///
+    /// Without one the cookie is unsigned, so any subdomain -- including a
+    /// student's deployed app -- can set a `session` cookie for the parent
+    /// domain. If unset a random key is generated at startup, which is safe but
+    /// invalidates existing sessions on every restart.
+    pub key: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -85,7 +92,6 @@ pub fn get_configuration() -> Result<Settings, ConfigError> {
         .set_default("application.ipv6", false)?
         .set_default("application.secure", true)?
         .set_default("database.user", "postgres")?
-        .set_default("database.password", "postgres")?
         .set_default("database.host", "localhost")?
         .set_default("database.port", 5432)?
         .set_default("database.name", "postgres")?
@@ -157,6 +163,23 @@ impl Settings {
     }
 
     pub fn session_config(&self) -> SessionConfig {
+        let key = match self.auth.key.as_deref() {
+            Some(key) if key.as_bytes().len() >= 64 => Key::from(key.as_bytes()),
+            Some(_) => {
+                tracing::warn!(
+                    "auth.key is shorter than 64 bytes; generating a random key instead"
+                );
+                Key::generate()
+            }
+            None => {
+                tracing::warn!(
+                    "auth.key is not configured; generating a random key. Sessions will not \
+                     survive a restart -- set auth.key to a 64+ byte secret."
+                );
+                Key::generate()
+            }
+        };
+
         SessionConfig::default()
             .with_lifetime(Duration::hours(self.auth.lifespan))
             .with_cookie_name(self.auth.cookiename.clone())
@@ -164,6 +187,13 @@ impl Settings {
             .with_http_only(self.auth.httponly)
             .with_secure(self.auth.secure)
             .with_max_lifetime(Duration::days(self.auth.maxlifespan))
+            // Set explicitly rather than relying on the library default. Note
+            // this does not defend against student apps on sibling subdomains,
+            // which are same-site; the encrypted cookie below is what stops
+            // them injecting a session for the parent domain.
+            .with_cookie_same_site(SameSite::Lax)
+            .with_key(key)
+            .with_security_mode(SecurityMode::PerSession)
     }
 
     pub fn container_memory_bytes(&self) -> Result<i64, ConfigError> {

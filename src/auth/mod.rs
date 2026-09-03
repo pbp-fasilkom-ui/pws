@@ -73,12 +73,16 @@ pub struct User {
 // TODO: do we need this?
 impl User {
     pub async fn get(id: &Uuid, pool: &PgPool) -> Result<User, sqlx::Error> {
-        let sqluser = sqlx::query!(
-            "SELECT id, username, name, password FROM users WHERE id = $1",
-            id
-        )
-        .fetch_one(pool)
-        .await?;
+        // `deleted_at IS NULL`: soft-deleted accounts used to keep loading
+        // here, so a disabled user stayed authenticated.
+        let (user_id, username, name, password) =
+            sqlx::query_as::<_, (Uuid, String, String, String)>(
+                "SELECT id, username, name, password FROM users \
+                 WHERE id = $1 AND deleted_at IS NULL",
+            )
+            .bind(id)
+            .fetch_one(pool)
+            .await?;
 
         let sql_user_perms =
             sqlx::query!("SELECT token FROM user_permissions WHERE user_id = $1;", id)
@@ -86,34 +90,36 @@ impl User {
                 .await?;
 
         Ok(Self {
-            id: sqluser.id,
-            username: sqluser.username,
-            name: sqluser.name,
-            password: sqluser.password,
+            id: user_id,
+            username,
+            name,
+            password,
             permissions: sql_user_perms.into_iter().map(|x| x.token).collect(),
         })
     }
 
     pub async fn get_from_username(username: &str, pool: &PgPool) -> Result<Self, sqlx::Error> {
-        let sqluser = sqlx::query!(
-            "SELECT id, username, name, password FROM users WHERE username = $1",
-            username
-        )
-        .fetch_one(pool)
-        .await?;
+        let (user_id, db_username, name, password) =
+            sqlx::query_as::<_, (Uuid, String, String, String)>(
+                "SELECT id, username, name, password FROM users \
+                 WHERE username = $1 AND deleted_at IS NULL",
+            )
+            .bind(username)
+            .fetch_one(pool)
+            .await?;
 
         let sql_user_perms = sqlx::query!(
             "SELECT token FROM user_permissions WHERE user_id = $1;",
-            sqluser.id
+            user_id
         )
         .fetch_all(pool)
         .await?;
 
         Ok(Self {
-            id: sqluser.id,
-            name: sqluser.name,
-            username: sqluser.username,
-            password: sqluser.password,
+            id: user_id,
+            name,
+            username: db_username,
+            password,
             permissions: sql_user_perms.into_iter().map(|x| x.token).collect(),
         })
     }
