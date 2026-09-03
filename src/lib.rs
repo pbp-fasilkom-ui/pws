@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod authz;
 pub mod build_logs;
 pub mod configuration;
 pub mod dashboard;
