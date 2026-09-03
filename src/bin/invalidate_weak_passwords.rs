@@ -45,17 +45,21 @@ async fn main() {
         }
     };
 
-    let users: Vec<(Uuid, String, String)> =
-        match sqlx::query_as("SELECT id, username, password FROM users")
-            .fetch_all(&pool)
-            .await
-        {
-            Ok(users) => users,
-            Err(err) => {
-                eprintln!("Failed to read users: {err:?}");
-                process::exit(1);
-            }
-        };
+    let users: Vec<(Uuid, String, String)> = match sqlx::query_as(
+        // Match the soft-delete filter the login path applies, so the
+        // dry-run count is a truthful blast-radius estimate rather than
+        // including rows login can never reach.
+        "SELECT id, username, password FROM users WHERE deleted_at IS NULL",
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(users) => users,
+        Err(err) => {
+            eprintln!("Failed to read users: {err:?}");
+            process::exit(1);
+        }
+    };
 
     let argon2 = Argon2::default();
     let mut affected = 0usize;
