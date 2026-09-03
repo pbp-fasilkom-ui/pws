@@ -54,7 +54,9 @@ previous_image="$(docker inspect --format '{{.Config.Image}}' "$container_name" 
 
 healthcheck() {
   curl --fail --silent --show-error \
-    --retry 10 --retry-delay 3 --retry-connrefused \
+    --connect-timeout 5 --max-time 10 \
+    --retry 20 --retry-delay 3 --retry-max-time 90 \
+    --retry-connrefused --retry-all-errors \
     "$health_url"
 }
 
