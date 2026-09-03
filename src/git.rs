@@ -34,11 +34,23 @@ use data_encoding::BASE64;
 
 async fn basic_auth<B>(
     State(AppState { pool, git_auth, .. }): State<AppState>,
-    Path((_owner, repo)): Path<(String, String)>,
+    Path((owner, repo)): Path<(String, String)>,
     headers: HeaderMap,
     request: Request<B>,
     next: Next<B>,
 ) -> Result<Response<UnsyncBoxBody<Bytes, axum::Error>>, hyper::Response<Body>> {
+    // Validate before the git_auth bypass below, so unauthenticated
+    // deployments are covered too. Several handlers downstream build
+    // filesystem paths by formatting these segments directly.
+    if crate::authz::validate_segment(&owner).is_err()
+        || crate::authz::validate_segment(repo.strip_suffix(".git").unwrap_or(&repo)).is_err()
+    {
+        return Err(Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::empty())
+            .unwrap());
+    }
+
     if !git_auth {
         return Ok(next.run(request).await);
     }
@@ -71,11 +83,25 @@ async fn basic_auth<B>(
                 return Err(auth_err);
             }
 
-            let decoded = BASE64.decode(token.as_bytes()).unwrap();
-            let decoded = String::from_utf8(decoded).unwrap();
+            // A malformed header used to panic the request task here, and there
+            // is no CatchPanicLayer to absorb it.
+            let Ok(decoded) = BASE64.decode(token.as_bytes()) else {
+                return Err(auth_err);
+            };
+            let Ok(decoded) = String::from_utf8(decoded) else {
+                return Err(auth_err);
+            };
             let mut parts = decoded.split(':');
             let owner_name = parts.next().unwrap_or("");
             let token = parts.next().unwrap_or("");
+
+            // The credentials authenticate `owner_name`, but the repository
+            // being acted on belongs to `owner` from the URL. These were never
+            // compared, so valid credentials for your own project authorized
+            // access to anyone else's project of the same name.
+            if owner_name != owner {
+                return Err(auth_failed);
+            }
 
             let tokens = match sqlx::query!(
                 r#"SELECT projects.name AS project_name, api_token.token AS token, project_owners.name AS project_owner
@@ -94,34 +120,16 @@ async fn basic_auth<B>(
                 Err(_) => return Err(auth_err),
             };
 
-            tracing::debug!(
-                "AUTH_DEBUG: Auth attempt - owner: {}, repo: {}, token: {}",
-                owner_name,
-                repo,
-                token
-            );
-            tracing::debug!("AUTH_DEBUG: Found {} tokens in database", tokens.len());
+            // Nothing here may log the presented or stored token. These lines
+            // previously ran at info level on every push, and the container's
+            // stdout is scraped into Loki, which Grafana can query.
+            tracing::debug!(%owner_name, %repo, "Git auth attempt");
 
             let authenticated = tokens.iter().any(|rec| {
-                tracing::info!(
-                    "Checking token - project: {}, owner: {}, stored_token: {}",
-                    rec.project_name,
-                    rec.project_owner,
-                    rec.token
-                );
-
-                // Use plain text comparison instead of argon2 hashing
-                let token_match = rec.token == token;
                 let authorization_match =
                     rec.project_name == repo && rec.project_owner == owner_name;
 
-                tracing::info!(
-                    "Token match: {}, Authorization match: {}",
-                    token_match,
-                    authorization_match
-                );
-
-                token_match && authorization_match
+                authorization_match && constant_time_eq(rec.token.as_bytes(), token.as_bytes())
             });
 
             if !authenticated {
@@ -131,6 +139,21 @@ async fn basic_auth<B>(
             Ok(next.run(request).await)
         }
     }
+}
+
+/// Compares two byte strings without short-circuiting on the first difference.
+///
+/// Tokens are currently stored in plaintext, so a naive `==` leaks their
+/// contents through response timing.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+
+    a.iter()
+        .zip(b.iter())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
 }
 
 pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
