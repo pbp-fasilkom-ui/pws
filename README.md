@@ -89,7 +89,7 @@ The `CI` GitHub Actions workflow runs backend checks, UI and documentation build
 
 `ghcr.io/pbp-fasilkom-ui/pws:<commit-sha>`
 
-The `CD` workflow is manual-only. It uses a GitHub-hosted runner, connects to the production network through OpenVPN, and deploys over SSH. It does not use a self-hosted runner or depend on GHCR for deployment.
+The `CD` workflow can be triggered manually or automatically after the `CI` workflow succeeds for a push to `master`. It uses a GitHub-hosted runner, connects to the production network through OpenVPN, and deploys over SSH. It does not use a self-hosted runner or depend on GHCR for deployment.
 
 For manual deployment, make sure the production VM has Docker Compose, `curl`, and this repository checked out on the `master` branch with no local changes. The local-build deployment script updates the checkout before deploying:
 
