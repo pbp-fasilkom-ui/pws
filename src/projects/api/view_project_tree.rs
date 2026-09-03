@@ -7,7 +7,7 @@ use hyper::{Body, StatusCode};
 use serde::Serialize;
 use std::path::Path as StdPath;
 
-use crate::startup::AppState;
+use crate::{auth::Auth, authz, startup::AppState};
 
 #[derive(Serialize, Debug)]
 #[serde(tag = "kind", rename_all = "lowercase")]
@@ -37,12 +37,46 @@ pub struct TreeQuery {
     path: Option<String>,
 }
 
-#[tracing::instrument(skip(pool, base))]
+fn json_error(status: StatusCode, message: &str) -> Response<Body> {
+    let body = serde_json::to_string(&serde_json::json!({ "message": message })).unwrap();
+    Response::builder()
+        .status(status)
+        .header("Content-Type", "application/json")
+        .body(Body::from(body))
+        .unwrap()
+}
+
+#[tracing::instrument(skip(auth, pool, base))]
 pub async fn get(
+    auth: Auth,
     Path((owner, project)): Path<(String, String)>,
     State(AppState { pool, base, .. }): State<AppState>,
     Query(TreeQuery { r#ref, path }): Query<TreeQuery>,
 ) -> Response<Body> {
+    // This handler previously took no user at all and checked only that the
+    // project existed, so any logged-in account could enumerate any repo's
+    // full file tree at any ref.
+    let Some(user) = auth.current_user else {
+        return json_error(StatusCode::UNAUTHORIZED, "Unauthorized");
+    };
+
+    match authz::has_project_access(&pool, &owner, &project, user.id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return json_error(
+                StatusCode::NOT_FOUND,
+                "Project not found or you don't have access",
+            )
+        }
+        Err(err) => {
+            tracing::error!(?err, "Failed to check project access");
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to check project access",
+            );
+        }
+    }
+
     // ---- Project existence (runtime SQLx; no macros -> no DATABASE_URL at build) ----
 
     let exists = sqlx::query_scalar::<_, bool>(

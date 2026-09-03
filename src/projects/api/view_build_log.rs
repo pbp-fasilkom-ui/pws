@@ -7,7 +7,7 @@ use hyper::{Body, StatusCode};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{auth::Auth, startup::AppState};
+use crate::{auth::Auth, authz, startup::AppState};
 
 #[derive(Serialize, Deserialize, Debug, sqlx::Type)]
 #[sqlx(type_name = "build_state", rename_all = "lowercase")]
@@ -56,7 +56,47 @@ pub async fn get(
     }): State<AppState>,
     Path((owner, project, build_id)): Path<(String, String, Uuid)>,
 ) -> Response<Body> {
-    let _user = auth.current_user.unwrap();
+    let Some(user) = auth.current_user else {
+        let json = serde_json::to_string(&ErrorResponse {
+            message: "Unauthorized".to_string(),
+        })
+        .unwrap();
+        return Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .header("Content-Type", "application/json")
+            .body(Body::from(json))
+            .unwrap();
+    };
+
+    // The project query below joins users_owners but never binds the caller, so
+    // on its own it only proves that *someone* owns this project. Authorize the
+    // caller explicitly before touching any project data.
+    match authz::has_project_access(&pool, &owner, &project, user.id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            let json = serde_json::to_string(&ErrorResponse {
+                message: "Project not found or you don't have access".to_string(),
+            })
+            .unwrap();
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .header("Content-Type", "application/json")
+                .body(Body::from(json))
+                .unwrap();
+        }
+        Err(err) => {
+            tracing::error!(?err, "Failed to check project access");
+            let json = serde_json::to_string(&ErrorResponse {
+                message: "Failed to check project access".to_string(),
+            })
+            .unwrap();
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .header("Content-Type", "application/json")
+                .body(Body::from(json))
+                .unwrap();
+        }
+    }
 
     // check if project exist
     let _project_record = match sqlx::query!(
@@ -100,12 +140,23 @@ pub async fn get(
         }
     };
 
+    // Correlate the build with the project in the URL. Selecting purely by
+    // build id let anyone with a build UUID read any project's build log, which
+    // routinely contains environment values echoed during the build.
     let build = match sqlx::query_as::<_, BuildDetailResponse>(
-        r#"SELECT id, status, created_at, finished_at, log AS logs, branch, commit_sha
-        FROM builds WHERE id = $1
-        ORDER BY created_at DESC"#,
+        r#"SELECT builds.id, builds.status, builds.created_at, builds.finished_at,
+                  builds.log AS logs, builds.branch, builds.commit_sha
+        FROM builds
+        JOIN projects ON builds.project_id = projects.id
+        JOIN project_owners ON projects.owner_id = project_owners.id
+        WHERE builds.id = $1
+          AND projects.name = $2
+          AND project_owners.name = $3
+        ORDER BY builds.created_at DESC"#,
     )
     .bind(build_id)
+    .bind(&project)
+    .bind(&owner)
     .fetch_one(&pool)
     .await
     {
