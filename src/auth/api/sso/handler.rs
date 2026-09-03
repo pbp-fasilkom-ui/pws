@@ -20,12 +20,16 @@ use uuid::Uuid;
 /// whatever `service` the caller passes. Accepting a client-supplied value
 /// therefore let an attacker present a ticket minted for a service they control
 /// and have it validated here, logging them in as its owner.
-fn allowed_service_urls(domain: &str) -> [String; 4] {
+fn allowed_service_urls(domain: &str) -> [String; 6] {
     [
         "http://localhost:8080/web/sso".to_string(),
         "http://localhost:5173/web/sso".to_string(),
         format!("https://{domain}/web/sso"),
         format!("http://{domain}/web/sso"),
+        // Traefik routes both the apex and www, so the browser's origin can be
+        // either one.
+        format!("https://www.{domain}/web/sso"),
+        format!("http://www.{domain}/web/sso"),
     ]
 }
 

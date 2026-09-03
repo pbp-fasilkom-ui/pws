@@ -300,6 +300,9 @@ fn origin_is_allowed(origin: Option<&TypedHeader<headers::Origin>>, domain: &str
         "http://localhost:5173".to_string(),
         format!("https://{domain}"),
         format!("http://{domain}"),
+        // Traefik routes both the apex and www.
+        format!("https://www.{domain}"),
+        format!("http://www.{domain}"),
     ]
     .iter()
     .any(|allowed| allowed == &origin)
