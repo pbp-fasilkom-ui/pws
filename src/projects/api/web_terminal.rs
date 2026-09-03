@@ -3,9 +3,10 @@ use std::{borrow::Cow, net::SocketAddr, time::Duration};
 use axum::{
     extract::{
         ws::{CloseFrame, Message},
-        ConnectInfo, Path, WebSocketUpgrade,
+        ConnectInfo, Path, State, WebSocketUpgrade,
     },
     headers,
+    http::StatusCode,
     response::IntoResponse,
     TypedHeader,
 };
@@ -17,20 +18,65 @@ use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 
+use crate::{auth::Auth, authz, startup::AppState};
+
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WsRequest {
     pub message: String,
 }
 
-#[tracing::instrument]
+#[tracing::instrument(skip(auth, pool, ws))]
 pub async fn ws(
+    auth: Auth,
+    State(AppState { pool, domain, .. }): State<AppState>,
     Path((owner, project)): Path<(String, String)>,
-    // State(AppState { pool, base, .. }): State<AppState>,
     ws: WebSocketUpgrade,
     user_agent: Option<TypedHeader<headers::UserAgent>>,
+    origin: Option<TypedHeader<headers::Origin>>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
 ) -> impl IntoResponse {
+    // A WebSocket upgrade is not subject to the CORS layer, so the origin has
+    // to be checked here. Without this, any page the user visits — including an
+    // app deployed on a sibling subdomain, which is same-site and therefore
+    // sends the session cookie — could open a shell as them.
+    if !origin_is_allowed(origin.as_ref(), &domain) {
+        tracing::warn!(?origin, "Rejected terminal upgrade from disallowed origin");
+        return (StatusCode::FORBIDDEN, "Origin not allowed").into_response();
+    }
+
+    let Some(user) = auth.current_user else {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    };
+
+    // Being logged in is not enough: the session must be tied to *this*
+    // project. Previously this handler took no user at all, so any account
+    // could open a shell in any container.
+    match authz::has_project_access(&pool, &owner, &project, user.id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return (
+                StatusCode::NOT_FOUND,
+                "Project not found or you don't have access",
+            )
+                .into_response()
+        }
+        Err(err) => {
+            tracing::error!(?err, "Can't start terminal: Failed to check project access");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to check access").into_response();
+        }
+    }
+
+    // Derived from validated segments, and refuses names that would resolve to
+    // one of the platform's own containers.
+    let container_name = match authz::container_name(&owner, &project) {
+        Ok(name) => name,
+        Err(err) => {
+            tracing::warn!(%owner, %project, %err, "Rejected terminal target");
+            return (StatusCode::BAD_REQUEST, "Invalid project").into_response();
+        }
+    };
+
     let user_agent = if let Some(TypedHeader(user_agent)) = user_agent {
         user_agent.to_string()
     } else {
@@ -79,7 +125,6 @@ pub async fn ws(
                 }
             };
 
-            let container_name = format!("{owner}-{}", project.trim_end_matches(".git")).replace('.', "-");
             let exec = match docker
                 .create_exec(
                     &container_name,
@@ -237,4 +282,25 @@ pub async fn ws(
             tracing::info!(?who, "Websocket context destroyed");
         }
     })
+    .into_response()
+}
+
+/// Mirrors the CORS allow-list in `startup::run`, which WebSocket upgrades
+/// bypass. A missing `Origin` header is allowed so that non-browser clients
+/// (which are not subject to CSRF) keep working; browsers always send one.
+fn origin_is_allowed(origin: Option<&TypedHeader<headers::Origin>>, domain: &str) -> bool {
+    let Some(TypedHeader(origin)) = origin else {
+        return true;
+    };
+
+    let origin = origin.to_string();
+
+    [
+        "http://localhost:8080".to_string(),
+        "http://localhost:5173".to_string(),
+        format!("https://{domain}"),
+        format!("http://{domain}"),
+    ]
+    .iter()
+    .any(|allowed| allowed == &origin)
 }
