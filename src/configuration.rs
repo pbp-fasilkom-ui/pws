@@ -109,14 +109,17 @@ pub fn get_configuration() -> Result<Settings, ConfigError> {
         .set_default("container.cpu", 0.5)?
         .set_default("container.memory", "256M")?
         .set_default("container.swap", "320M")?
+        // Keyed "build", not "builder": the struct field is `build`, so the
+        // default was never applied and a configuration without build.max
+        // failed to start.
         .set_default(
-            "builder.max",
-            available_parallelism()
+            "build.max",
+            (available_parallelism()
                 .unwrap_or(NonZeroUsize::new(3).unwrap())
                 .get() as i32
-                - 1,
+                - 1)
+            .max(1),
         )?
-        .set_default("builder.cpums", 100000)?
         .add_source(config::File::with_name("configuration"))
         .add_source(config::Environment::default().separator("_"))
         .build()?

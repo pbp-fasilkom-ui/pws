@@ -85,7 +85,7 @@ and make sure have `gunicorn` in the `requirements.txt` file.
 
 ### CI/CD Guide
 
-The `CI` GitHub Actions workflow runs backend checks, UI and documentation builds, and a Docker build for pull requests targeting `master`. Clippy, UI lint, and documentation typechecking currently run as advisory checks because the existing `master` branch has baseline findings. On pushes to `master`, the container job publishes an immutable image to GHCR tagged with the commit SHA:
+The `CI` GitHub Actions workflow runs backend checks, UI and documentation builds, and a Docker build for pull requests targeting `master`. Clippy blocks the build; its pre-existing findings are frozen via a crate-level allow list in `src/lib.rs`, which should be burned down over time. UI lint and documentation typechecking remain advisory because the UI has a baseline of style errors that cannot be frozen without disabling most of the useful rules. A `cargo-audit` job reports Rust dependency advisories, and third-party actions are pinned to commit SHAs with Dependabot keeping them current. On pushes to `master`, the container job publishes an immutable image to GHCR tagged with the commit SHA:
 
 `ghcr.io/pbp-fasilkom-ui/pws:<commit-sha>`
 
@@ -99,6 +99,59 @@ cd /home/admin/pws
 ```
 
 The script verifies the checkout, fast-forward pulls `origin/master`, builds an image locally using Docker's build cache, recreates only the `server` service, verifies `/health`, and attempts to restore the previous image if the health check fails. The optional commit SHA prevents deploying a different `master` revision than the one selected by CD. The VM does not need GHCR credentials for this deployment flow.
+
+### Security-related deployment requirements
+
+Recent hardening added a few prerequisites. A deployment that skips them will
+fail to start or will lock users out.
+
+**Required configuration.** `configuration.yml` must now set:
+
+- `database.password` — there is no longer a default, so the application
+  refuses to start without one. Previously it silently fell back to a weak
+  value.
+- `auth.key` — at least 64 bytes, used to encrypt the session cookie. If it is
+  absent a random key is generated at startup, which is safe but logs users out
+  on every restart. Generate one with `openssl rand -base64 64`.
+- `auth.secure: true` for any deployment reachable over HTTPS.
+
+**Migrations.** Apply `migration.sql`, which adds a unique index on
+`project_owners.name`. It removes unreferenced duplicate rows first; if it
+fails, resolve the remaining duplicates by hand before retrying.
+
+**One-off maintenance tasks.** Two binaries, both dry-run by default:
+
+```bash
+# SSO accounts used to have their password derived from their username.
+# Reports affected accounts; --apply invalidates those hashes.
+cargo run --bin invalidate_weak_passwords -- --apply
+
+# Git push tokens were stored in plaintext and logged on every push.
+# --hash keeps each credential working; --rotate issues new ones, which
+# invalidates leaked tokens but breaks every configured git remote until
+# its owner copies the new password from project settings.
+cargo run --bin migrate_git_tokens -- --hash
+```
+
+Run `migrate_git_tokens` before deploying the new server: it verifies tokens as
+Argon2 hashes and refuses a plaintext value, so pushes fail until the rows are
+converted.
+
+**Access to admin interfaces changed.** Postgres, Grafana, Prometheus, the app
+port and the Traefik dashboard are now published on loopback only, and Portainer
+has no public route at all. Reach them over an SSH tunnel:
+
+```bash
+ssh -L 9000:127.0.0.1:9000 -L 7070:127.0.0.1:7070 -L 3000:127.0.0.1:3000 admin@<host>
+```
+
+Grafana also remains available at `grafana.<domain>` through Traefik.
+
+**Repository settings to confirm.** These are not visible in the repository and
+should be verified directly: the `production` environment should require
+reviewers and restrict deployments to `master`, and `master` should be
+branch-protected. Without them, a pull request can reference the `production`
+environment and read `DEPLOY_SSH_KEY` and `OPENVPN_CONFIG`.
 
 ### Setting up the docusaurus
 

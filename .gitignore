@@ -9,3 +9,13 @@ configuration.yaml
 .vscode
 letsencrypt
 ssl
+
+# Credentials and keys: previously only the exact name ".env" was ignored.
+.env.*
+!.env.example
+*.pem
+*.key
+*.ovpn
+*.p12
+id_rsa
+id_ed25519
