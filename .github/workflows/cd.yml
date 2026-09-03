@@ -36,14 +36,14 @@ jobs:
           DEPLOY_USER: ${{ vars.DEPLOY_USER }}
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
           OPENVPN_CONFIG: ${{ secrets.OPENVPN_CONFIG }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KEY_B64: ${{ secrets.DEPLOY_SSH_KEY_B64 }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
         run: |
           test -n "$DEPLOY_HOST" || { echo "DEPLOY_HOST is not configured." >&2; exit 1; }
           test -n "$DEPLOY_USER" || { echo "DEPLOY_USER is not configured." >&2; exit 1; }
           test -n "$DEPLOY_PATH" || { echo "DEPLOY_PATH is not configured." >&2; exit 1; }
           test -n "$OPENVPN_CONFIG" || { echo "OPENVPN_CONFIG is not configured." >&2; exit 1; }
-          test -n "$DEPLOY_SSH_KEY" || { echo "DEPLOY_SSH_KEY is not configured." >&2; exit 1; }
+          test -n "$DEPLOY_SSH_KEY_B64" || { echo "DEPLOY_SSH_KEY_B64 is not configured." >&2; exit 1; }
           test -n "$DEPLOY_KNOWN_HOSTS" || { echo "DEPLOY_KNOWN_HOSTS is not configured." >&2; exit 1; }
 
       - name: Install OpenVPN and network tools
@@ -87,12 +87,12 @@ jobs:
           DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
           DEPLOY_USER: ${{ vars.DEPLOY_USER }}
           DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KEY_B64: ${{ secrets.DEPLOY_SSH_KEY_B64 }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
           EXPECTED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           umask 077
-          printf '%s' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/deploy-key"
+          printf '%s' "$DEPLOY_SSH_KEY_B64" | base64 --decode > "$RUNNER_TEMP/deploy-key"
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/known-hosts"
 
           ssh -i "$RUNNER_TEMP/deploy-key" \
