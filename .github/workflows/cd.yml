@@ -66,7 +66,7 @@ jobs:
             --log "$RUNNER_TEMP/openvpn.log"
 
           for attempt in {1..30}; do
-            if grep -q "Initialization Sequence Completed" "$RUNNER_TEMP/openvpn.log"; then
+            if sudo grep -q "Initialization Sequence Completed" "$RUNNER_TEMP/openvpn.log"; then
               echo "OpenVPN connection established."
               exit 0
             fi
@@ -74,7 +74,7 @@ jobs:
           done
 
           echo "OpenVPN failed to connect:" >&2
-          tail -n 80 "$RUNNER_TEMP/openvpn.log" >&2
+          sudo tail -n 80 "$RUNNER_TEMP/openvpn.log" >&2
           exit 1
 
       - name: Verify SSH route through VPN
@@ -109,5 +109,5 @@ jobs:
         if: always()
         run: |
           if test -s "$RUNNER_TEMP/openvpn.pid"; then
-            sudo kill "$(cat "$RUNNER_TEMP/openvpn.pid")" 2>/dev/null || true
+            sudo kill "$(sudo cat "$RUNNER_TEMP/openvpn.pid")" 2>/dev/null || true
           fi
