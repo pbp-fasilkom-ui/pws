@@ -3,7 +3,7 @@ use crate::{
     auth::{Auth, ErrorResponse, RegisterUserErrorType, SsoCallbackRequest, User},
     startup::AppState,
 };
-use argon2::password_hash::{rand_core::OsRng, SaltString};
+use argon2::password_hash::{rand_core::OsRng, rand_core::RngCore, SaltString};
 use argon2::{Argon2, PasswordHasher};
 use axum::extract::{Json, State};
 use garde::Unvalidated;
@@ -93,8 +93,15 @@ pub async fn handle_callback(
         let hasher = Argon2::default();
         let salt = SaltString::generate(&mut OsRng);
 
-        // Hash the username
-        let password_hash = match hasher.hash_password(username.as_bytes(), &salt) {
+        // SSO accounts authenticate through CAS and must have no usable local
+        // password. Previously the *username* was hashed here, which made every
+        // SSO account guessable with a single attempt against /api/login.
+        // Hash an unpredictable secret instead so password login can never
+        // succeed for these users.
+        let mut unusable_password = [0u8; 32];
+        OsRng.fill_bytes(&mut unusable_password);
+
+        let password_hash = match hasher.hash_password(&unusable_password, &salt) {
             Ok(hash) => hash,
             Err(err) => {
                 tracing::error!(?err, "Can't register User: Failed to hash password");
