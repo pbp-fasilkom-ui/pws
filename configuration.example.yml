@@ -7,7 +7,8 @@ application:
 
 database:
   user: "postgres"
-  password: "123"       # ← Change from "password" to "123"
+  # No default: the application refuses to start without one.
+  password: "change-me-use-a-long-random-value"
   host: "db-pemasak"    # ← Change from "localhost" to "db-pemasak" 
   port: 5432
   name: "postgres"      # ← Change from "dev" to "postgres"
@@ -28,7 +29,14 @@ auth:
   # in days
   maxage: 365
   httponly: true
-  secure: false
+  # true in any deployment reachable over HTTPS, otherwise the session cookie
+  # can travel in cleartext.
+  secure: true
+  # At least 64 bytes, used to encrypt the session cookie. Without it a random
+  # key is generated at startup and sessions do not survive a restart; more
+  # importantly, an unsigned cookie lets any subdomain -- including a deployed
+  # student app -- set a session for the parent domain.
+  key: "change-me-generate-64-plus-random-bytes-eg-openssl-rand-base64-64"
   # in days
   maxlifespan: 365
 
@@ -46,5 +54,5 @@ container:
   swap: 320M
 
 grafana:
-  user: "user"
-  password: "password"
+  user: "change-me"
+  password: "change-me-use-a-long-random-value"
