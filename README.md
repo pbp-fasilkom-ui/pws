@@ -137,6 +137,23 @@ Run `migrate_git_tokens` before deploying the new server: it verifies tokens as
 Argon2 hashes and refuses a plaintext value, so pushes fail until the rows are
 converted.
 
+**Check for names the new validation rejects.** Owner and project names are now
+refused if they start with a dot or contain `..`, since both become filesystem
+paths. Such names were previously accepted. Run this before deploying; any rows
+it returns belong to accounts that would lose git access and need renaming
+first:
+
+```sql
+SELECT 'user' AS kind, username AS name FROM users
+  WHERE username LIKE '.%' OR username LIKE '%..%'
+UNION ALL
+SELECT 'owner', name FROM project_owners
+  WHERE name LIKE '.%' OR name LIKE '%..%'
+UNION ALL
+SELECT 'project', name FROM projects
+  WHERE name LIKE '.%' OR name LIKE '%..%';
+```
+
 **Access to admin interfaces changed.** Postgres, Grafana, Prometheus, the app
 port and the Traefik dashboard are now published on loopback only, and Portainer
 has no public route at all. Reach them over an SSH tunnel:
