@@ -12,7 +12,11 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 /// Longest permitted `owner` or `project` path segment.
-const MAX_SEGMENT_LEN: usize = 128;
+///
+/// Matches the `users.username` column width, because an owner namespace is
+/// created from a username at registration. A smaller value here would deny
+/// git access to any existing account with a longer name.
+const MAX_SEGMENT_LEN: usize = 255;
 
 /// True if `user_id` may act on `owner/project`, either through `users_owners`
 /// (ownership) or through `project_shares` (an accepted invite).
@@ -186,6 +190,12 @@ mod tests {
         for bad in ["..", "../etc", "a/../b", ".", ".hidden", "", "a/b", "a\\b"] {
             assert!(validate_segment(bad).is_err(), "{bad} should be rejected");
         }
+    }
+
+    #[test]
+    fn accepts_names_up_to_the_column_width() {
+        assert!(validate_segment(&"a".repeat(255)).is_ok());
+        assert!(validate_segment(&"a".repeat(256)).is_err());
     }
 
     #[test]
