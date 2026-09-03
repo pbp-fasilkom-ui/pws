@@ -18,6 +18,7 @@ mod generate_status_badge;
 mod get_git_credentials;
 mod get_project_status;
 mod project_dashboard;
+mod redeploy_project;
 mod regenerate_git_password;
 mod stream_build_log;
 mod update_project_environ;
@@ -83,6 +84,10 @@ pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Bo
         .route_with_tsr(
             "/api/project/:owner/:project/regenerate-git-password",
             post(regenerate_git_password::post),
+        )
+        .route_with_tsr(
+            "/api/project/:owner/:project/redeploy",
+            post(redeploy_project::post),
         )
         .route_with_tsr(
             "/api/project/:owner/:project/tree",

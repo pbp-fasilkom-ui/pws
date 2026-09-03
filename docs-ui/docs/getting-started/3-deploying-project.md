@@ -57,3 +57,7 @@ As this is an experimental service, we recommend you to clone your project to a 
    git push pws master
     ```
    :::
+
+## Redeploying the Latest Revision
+
+After a project has been pushed at least once, use the **Redeploy** button on the project dashboard to rebuild the latest recorded revision without creating another commit. PWS will add a new build to the queue and open its build log. The button is unavailable while another build for the project is running.
