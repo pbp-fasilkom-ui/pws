@@ -42,6 +42,21 @@ jobs:
           test -n "$DEPLOY_HOST" || { echo "DEPLOY_HOST is not configured." >&2; exit 1; }
           test -n "$DEPLOY_USER" || { echo "DEPLOY_USER is not configured." >&2; exit 1; }
           test -n "$DEPLOY_PATH" || { echo "DEPLOY_PATH is not configured." >&2; exit 1; }
+
+          # These are expanded into a single-quoted string in the remote shell
+          # below. DEPLOY_PATH is a repo variable, and write access to variables
+          # is often granted more freely than to secrets -- a value containing a
+          # quote would break out and execute as DEPLOY_USER on the VM.
+          case "$DEPLOY_PATH" in
+            /*) ;;
+            *) echo "DEPLOY_PATH must be an absolute path." >&2; exit 1 ;;
+          esac
+          printf '%s' "$DEPLOY_PATH" | grep -qE '^/[A-Za-z0-9._/-]+$' \
+            || { echo "DEPLOY_PATH contains unexpected characters." >&2; exit 1; }
+          printf '%s' "$DEPLOY_HOST" | grep -qE '^[A-Za-z0-9.-]+$' \
+            || { echo "DEPLOY_HOST contains unexpected characters." >&2; exit 1; }
+          printf '%s' "$DEPLOY_USER" | grep -qE '^[A-Za-z0-9._-]+$' \
+            || { echo "DEPLOY_USER contains unexpected characters." >&2; exit 1; }
           test -n "$OPENVPN_CONFIG" || { echo "OPENVPN_CONFIG is not configured." >&2; exit 1; }
           test -n "$DEPLOY_SSH_KEY_B64" || { echo "DEPLOY_SSH_KEY_B64 is not configured." >&2; exit 1; }
           test -n "$DEPLOY_KNOWN_HOSTS" || { echo "DEPLOY_KNOWN_HOSTS is not configured." >&2; exit 1; }
@@ -103,7 +118,7 @@ jobs:
             -o ServerAliveInterval=15 \
             -o ServerAliveCountMax=3 \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            "cd -- '$DEPLOY_PATH' && git pull --ff-only origin master && ./scripts/deploy-local.sh '$EXPECTED_SHA'"
+            "cd -- '$DEPLOY_PATH' && ./scripts/deploy-local.sh '$EXPECTED_SHA'"
 
       - name: Disconnect from production VPN
         if: always()
