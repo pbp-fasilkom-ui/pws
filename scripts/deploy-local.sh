@@ -34,6 +34,8 @@ fi
 
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "Deployment stopped: the deployment checkout has local changes." >&2
+  echo "Modified paths:" >&2
+  git status --porcelain >&2
   exit 1
 fi
 
