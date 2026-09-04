@@ -184,6 +184,23 @@ in the Dockerfile rather than dropping privileges at runtime. The generated
 Django image is unaffected. This is a deliberate trade: it is the containment
 that keeps a compromised project off the host.
 
+These options are applied when a container is *created*, so they take effect
+per project on its next push, not at deploy time -- `deploy-local.sh` recreates
+only the `server` service. Already-running project containers keep running
+unhardened until their owner pushes again.
+
+That gradual rollout is deliberate. Recreating every container at once was
+considered and rejected: rebuilding each project risks a build that succeeded
+weeks ago failing today on dependency resolution, which would leave that
+student's app down. Verified against the running fleet that the generated image
+starts correctly under these options (gunicorn still binds port 80 with only
+NET_BIND_SERVICE added back), and that no project ships its own Dockerfile, so
+nothing relies on a setuid entrypoint.
+
+The residual is a project whose owner stops pushing: its container stays as it
+was. If a specific project needs the hardening sooner, redeploy it from the
+project page rather than recreating the whole fleet.
+
 **Check for names the new validation rejects.** Owner and project names are now
 refused if they start with a dot or contain `..`, since both become filesystem
 paths. Such names were previously accepted. Run this before deploying; any rows
