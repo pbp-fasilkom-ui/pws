@@ -32,6 +32,17 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      # rust-toolchain.toml pins 1.72.0 with profile = "complete", which asks
+      # rustup for every component -- including miri, which was never published
+      # for that channel, so resolving it fails before cargo audit runs. Pinning
+      # a toolchain here exports RUSTUP_TOOLCHAIN, which takes precedence over
+      # that file. cargo-audit only parses Cargo.lock and never compiles the
+      # crate, so the project's own toolchain is irrelevant to it.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
+        with:
+          toolchain: stable
+
       - name: Audit Rust dependencies
         uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
