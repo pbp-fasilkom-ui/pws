@@ -85,7 +85,7 @@ and make sure have `gunicorn` in the `requirements.txt` file.
 
 ### CI/CD Guide
 
-The `CI` GitHub Actions workflow runs backend checks, UI and documentation builds, and a Docker build for pull requests targeting `master`. Clippy, UI lint, and documentation typechecking currently run as advisory checks because the existing `master` branch has baseline findings. On pushes to `master`, the container job publishes an immutable image to GHCR tagged with the commit SHA:
+The `CI` GitHub Actions workflow runs backend checks, UI and documentation builds, and a Docker build for pull requests targeting `master`. Clippy blocks the build; its pre-existing findings are frozen via a crate-level allow list in `src/lib.rs`, which should be burned down over time. UI lint and documentation typechecking remain advisory because the UI has a baseline of style errors that cannot be frozen without disabling most of the useful rules. A `cargo-audit` job reports Rust dependency advisories, and third-party actions are pinned to commit SHAs with Dependabot keeping them current. On pushes to `master`, the container job publishes an immutable image to GHCR tagged with the commit SHA:
 
 `ghcr.io/pbp-fasilkom-ui/pws:<commit-sha>`
 
@@ -99,6 +99,140 @@ cd /home/admin/pws
 ```
 
 The script verifies the checkout, fast-forward pulls `origin/master`, builds an image locally using Docker's build cache, recreates only the `server` service, verifies `/health`, and attempts to restore the previous image if the health check fails. The optional commit SHA prevents deploying a different `master` revision than the one selected by CD. The VM does not need GHCR credentials for this deployment flow.
+
+### Security-related deployment requirements
+
+Recent hardening added a few prerequisites. A deployment that skips them will
+fail to start or will lock users out.
+
+**Required configuration.** `configuration.yml` must now set:
+
+- `database.password` — there is no longer a default, so the application
+  refuses to start without one. Previously it silently fell back to a weak
+  value.
+- `auth.key` — at least 64 bytes, used to encrypt the session cookie. If it is
+  absent a random key is generated at startup, which is safe but logs users out
+  on every restart. Generate one with `openssl rand -base64 64`.
+- `auth.secure: true` for any deployment reachable over HTTPS.
+
+**Migrations.** Apply `migration.sql`, which adds a unique index on
+`project_owners.name`. It removes unreferenced duplicate rows first; if it
+fails, resolve the remaining duplicates by hand before retrying.
+
+**One-off maintenance tasks.** Two binaries, both dry-run by default. They are
+shipped inside the application image and must run there: the database is
+reachable only from the control-plane network, and they read the
+`configuration.yml` mounted at `/app/configuration.yml`. Running them from the
+VM host will not reach the database.
+
+```bash
+# Git push tokens were stored in plaintext and logged on every push.
+#   --hash        keeps every credential working, but a token that already
+#                 leaked stays valid until that project regenerates it.
+#   --invalidate  revokes them immediately, which breaks every configured git
+#                 remote until each owner regenerates from project settings.
+#                 No replacement password is printed -- the regenerate endpoint
+#                 is the only thing that can show one.
+docker compose run --rm --entrypoint /app/migrate_git_tokens server --hash
+
+# SSO accounts used to have their password derived from their username.
+# Reports affected accounts; --apply invalidates those hashes.
+docker compose run --rm --entrypoint /app/invalidate_weak_passwords server --apply
+```
+
+`scripts/deploy-local.sh` runs `migrate_git_tokens --hash` automatically after
+building the image and before starting the container, so a normal deploy needs
+no manual step. It is idempotent — already-converted rows are skipped — and a
+failure there aborts the deploy without touching the running container.
+
+Run it by hand only to revoke leaked credentials (`--invalidate`), or to inspect
+before deploying. The server counts unconverted rows at startup and refuses to
+boot while any remain, rather than starting healthy and silently rejecting every
+push.
+
+Note `invalidate_weak_passwords` also catches password-registered users who
+chose their username as their password, and there is no self-service password
+reset in this codebase. Read the dry-run output before applying: SSO users
+recover by signing in through CAS, but a password-only account caught by it has
+to be reset with direct SQL.
+
+**Traefik dashboard and API.** The API is bound to the Traefik container's own
+loopback (`--entrypoints.traefik.address=127.0.0.1:8080`). Publishing it on the
+host's loopback was not sufficient: a published port constrains only host
+access, and Traefik sits on both docker networks, so every student container
+could reach `traefik-pemasak:8080` and read the full routing table.
+
+Reach it from the VM with the IPv4 literal -- `localhost` resolves to `::1`,
+which is not bound:
+
+```bash
+docker exec traefik-pemasak wget -qO- http://127.0.0.1:8080/api/rawdata
+docker exec traefik-pemasak wget -qO- http://127.0.0.1:8080/api/overview
+```
+
+Verified: refused from any other container, and ports 80/443 routing is
+unaffected. Viewing the dashboard in a browser now requires temporarily
+republishing the port (a compose override), because a port cannot be published
+into a namespace bound to loopback.
+
+**Student images and container hardening.** Project containers run with
+`cap_drop: ALL`, a single `cap_add: NET_BIND_SERVICE` so a server can bind port
+80, and `no-new-privileges`. Images that rely on `gosu`/`su-exec` to step down
+from root at startup, or that need a capability beyond binding a low port, will
+fail to start and must be adjusted -- typically by running as a non-root `USER`
+in the Dockerfile rather than dropping privileges at runtime. The generated
+Django image is unaffected. This is a deliberate trade: it is the containment
+that keeps a compromised project off the host.
+
+These options are applied when a container is *created*, so they take effect
+per project on its next push, not at deploy time -- `deploy-local.sh` recreates
+only the `server` service. Already-running project containers keep running
+unhardened until their owner pushes again.
+
+That gradual rollout is deliberate. Recreating every container at once was
+considered and rejected: rebuilding each project risks a build that succeeded
+weeks ago failing today on dependency resolution, which would leave that
+student's app down. Verified against the running fleet that the generated image
+starts correctly under these options (gunicorn still binds port 80 with only
+NET_BIND_SERVICE added back), and that no project ships its own Dockerfile, so
+nothing relies on a setuid entrypoint.
+
+The residual is a project whose owner stops pushing: its container stays as it
+was. If a specific project needs the hardening sooner, redeploy it from the
+project page rather than recreating the whole fleet.
+
+**Check for names the new validation rejects.** Owner and project names are now
+refused if they start with a dot or contain `..`, since both become filesystem
+paths. Such names were previously accepted. Run this before deploying; any rows
+it returns belong to accounts that would lose git access and need renaming
+first:
+
+```sql
+SELECT 'user' AS kind, username AS name FROM users
+  WHERE username LIKE '.%' OR username LIKE '%..%'
+UNION ALL
+SELECT 'owner', name FROM project_owners
+  WHERE name LIKE '.%' OR name LIKE '%..%'
+UNION ALL
+SELECT 'project', name FROM projects
+  WHERE name LIKE '.%' OR name LIKE '%..%';
+```
+
+**Access to admin interfaces changed.** Postgres, Grafana, Prometheus, the app
+port and the Traefik dashboard are now published on loopback only, and Portainer
+has no public route at all. Reach them over an SSH tunnel:
+
+```bash
+ssh -L 9000:127.0.0.1:9000 -L 7070:127.0.0.1:7070 -L 3000:127.0.0.1:3000 admin@<host>
+```
+
+Grafana also remains available at `grafana.<domain>` through Traefik.
+
+**Repository settings to confirm.** These are not visible in the repository and
+should be verified directly: the `production` environment should require
+reviewers and restrict deployments to `master`, and `master` should be
+branch-protected. Without them, a pull request can reference the `production`
+environment and read `DEPLOY_SSH_KEY` and `OPENVPN_CONFIG`.
 
 ### Setting up the docusaurus
 

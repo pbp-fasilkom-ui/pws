@@ -5,7 +5,7 @@ use garde::{Unvalidated, Validate};
 use hyper::{Body, StatusCode};
 use serde::{Deserialize, Serialize};
 
-use crate::{auth::Auth, startup::AppState};
+use crate::{auth::Auth, authz, startup::AppState};
 
 #[derive(Deserialize, Validate, Debug)]
 pub struct UpdateProjectEnvironRequest {
@@ -32,7 +32,47 @@ pub async fn post(
     Path((owner, project)): Path<(String, String)>,
     Json(req): Json<Unvalidated<UpdateProjectEnvironRequest>>,
 ) -> Response<Body> {
-    let _user = auth.current_user.unwrap();
+    let Some(user) = auth.current_user else {
+        let json = serde_json::to_string(&ErrorResponse {
+            message: "Unauthorized".to_string(),
+        })
+        .unwrap();
+        return Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .header("Content-Type", "application/json")
+            .body(Body::from(json))
+            .unwrap();
+    };
+
+    // The project query below joins users_owners but never binds the caller, so
+    // on its own it only proves that *someone* owns this project. Authorize the
+    // caller explicitly before touching any project data.
+    match authz::has_project_access(&pool, &owner, &project, user.id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            let json = serde_json::to_string(&ErrorResponse {
+                message: "Project not found or you don't have access".to_string(),
+            })
+            .unwrap();
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .header("Content-Type", "application/json")
+                .body(Body::from(json))
+                .unwrap();
+        }
+        Err(err) => {
+            tracing::error!(?err, "Failed to check project access");
+            let json = serde_json::to_string(&ErrorResponse {
+                message: "Failed to check project access".to_string(),
+            })
+            .unwrap();
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .header("Content-Type", "application/json")
+                .body(Body::from(json))
+                .unwrap();
+        }
+    }
 
     let UpdateProjectEnvironRequest { key, value } = match req.validate(&()) {
         Ok(valid) => valid.into_inner(),

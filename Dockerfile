@@ -30,6 +30,12 @@ RUN cargo build --release
 FROM ubuntu:22.04
 WORKDIR /app
 COPY --from=builder /app/target/release/pemasak-infra /app
+# Maintenance tasks. They need the database, which is reachable only from the
+# control-plane network, and the configuration mounted at /app/configuration.yml
+# -- so they have to run inside this image rather than on the VM host:
+#   docker compose run --rm --entrypoint /app/migrate_git_tokens server --hash
+COPY --from=builder /app/target/release/migrate_git_tokens /app
+COPY --from=builder /app/target/release/invalidate_weak_passwords /app
 COPY --from=builder /app/ui/dist /app/ui/dist
 RUN apt update && apt install -y libssl-dev ca-certificates git apt-transport-https curl software-properties-common gnupg
 RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg

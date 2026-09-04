@@ -13,6 +13,7 @@ use hyper::{Body, Method, Request, Response, StatusCode, Uri};
 
 use sqlx::PgPool;
 use tokio::sync::mpsc::Sender;
+use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use uuid::Uuid;
@@ -90,7 +91,10 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
         // .fallback(fallback)  // Disabled: Traefik handles routing directly
         .with_state(state.clone())
         // .route_layer(middleware::from_fn_with_state(state, fallback_middleware))  // Disabled with fallback
-        .layer(cors);
+        .layer(cors)
+        // Several handlers still unwrap on database results. A panic in one
+        // request should return 500, not drop the connection.
+        .layer(CatchPanicLayer::new());
 
     let addr = listener
         .local_addr()

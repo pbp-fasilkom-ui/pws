@@ -1,0 +1,10 @@
+# docs-ui/Dockerfile does `COPY . .`; without this, local env files, git
+# metadata and node_modules are copied into the image.
+node_modules
+build
+.docusaurus
+.git
+.gitignore
+.env
+.env.*
+npm-debug.log*

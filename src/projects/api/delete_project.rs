@@ -9,6 +9,7 @@ use hyper::{Body, StatusCode};
 use serde::Serialize;
 
 use crate::auth::Auth;
+use crate::authz;
 use crate::startup::AppState;
 
 #[derive(Serialize)]
@@ -50,28 +51,67 @@ pub async fn post(
             .unwrap()
     }
 
-    let path = match project.ends_with(".git") {
-        true => format!("{base}/{owner}/{project}"),
-        false => format!("{base}/{owner}/{project}.git"),
+    fn deny(status: StatusCode, message: &str) -> Response<Body> {
+        let json = serde_json::to_string(&DeleteProjectErrorResponse {
+            message: message.to_string(),
+            details: vec![],
+        })
+        .unwrap();
+
+        Response::builder()
+            .status(status)
+            .header("Content-Type", "application/json")
+            .body(Body::from(json))
+            .unwrap()
+    }
+
+    // A missing user used to fall through to the deletion below. Deny instead:
+    // the auth middleware makes this unreachable today, but the handler should
+    // not depend on the router to stay safe.
+    let Some(user) = auth.current_user else {
+        return deny(StatusCode::UNAUTHORIZED, "Unauthorized");
     };
 
-    match auth.current_user {
-        Some(user) => {
-            if user.username != owner {
-                let json = serde_json::to_string(&DeleteProjectErrorResponse {
-                    message: format!("You are not allowed to delete this project"),
-                    details: vec![],
-                })
-                .unwrap();
-
-                return Response::builder()
-                    .status(StatusCode::BAD_REQUEST)
-                    .body(Body::from(json))
-                    .unwrap();
-            }
+    // Authorize against users_owners rather than comparing the username to the
+    // URL segment, which is how every other handler does it.
+    match authz::is_project_owner(&pool, &owner, &project, user.id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return deny(
+                StatusCode::NOT_FOUND,
+                "Project not found or you don't have access",
+            )
         }
-        None => (),
+        Err(err) => {
+            tracing::error!(?err, "Can't delete project: Failed to check ownership");
+            return deny(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to check project ownership",
+            );
+        }
     }
+
+    // Built from validated segments and checked to stay under `base`. The old
+    // format! took the URL parameters verbatim, so a percent-encoded `../` in
+    // `project` reached remove_dir_all below and deleted another user's repo.
+    // Resolved before anything destructive runs. This check used to sit after
+    // the repository had already been removed, so a rejected name lost its repo
+    // and then aborted, leaving the database row and the container behind.
+    let container_name = match authz::container_name(&owner, &project) {
+        Ok(name) => name,
+        Err(err) => {
+            tracing::warn!(%owner, %project, %err, "Rejected project deletion target");
+            return deny(StatusCode::BAD_REQUEST, "Invalid project");
+        }
+    };
+
+    let path = match authz::repo_path(&base, &owner, &project) {
+        Ok(path) => path,
+        Err(err) => {
+            tracing::warn!(%owner, %project, %err, "Rejected project deletion path");
+            return deny(StatusCode::BAD_REQUEST, "Invalid project");
+        }
+    };
 
     //TODO: better error log
     let mut status: HashMap<&'static str, &'static str> = HashMap::new();
@@ -145,8 +185,6 @@ pub async fn post(
             }
         },
     };
-
-    let container_name = format!("{owner}-{}", project.trim_end_matches(".git")).replace('.', "-");
 
     let docker = match Docker::connect_with_local_defaults() {
         Err(err) => {

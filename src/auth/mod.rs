@@ -20,7 +20,11 @@ use crate::configuration::Settings;
 use lazy_static::lazy_static;
 
 lazy_static! {
-    static ref USERNAME_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9.]+$").unwrap();
+    // Usernames become an owner namespace, which becomes a directory name under
+    // the git repository root. Dots are permitted because SSO usernames contain
+    // them, but a name may not start with one and may not contain `..`, so
+    // traversal is not representable.
+    static ref USERNAME_REGEX: Regex = Regex::new(r"^[a-zA-Z0-9][a-zA-Z0-9.]*$").unwrap();
 }
 
 pub mod api;
@@ -69,12 +73,16 @@ pub struct User {
 // TODO: do we need this?
 impl User {
     pub async fn get(id: &Uuid, pool: &PgPool) -> Result<User, sqlx::Error> {
-        let sqluser = sqlx::query!(
-            "SELECT id, username, name, password FROM users WHERE id = $1",
-            id
-        )
-        .fetch_one(pool)
-        .await?;
+        // `deleted_at IS NULL`: soft-deleted accounts used to keep loading
+        // here, so a disabled user stayed authenticated.
+        let (user_id, username, name, password) =
+            sqlx::query_as::<_, (Uuid, String, String, String)>(
+                "SELECT id, username, name, password FROM users \
+                 WHERE id = $1 AND deleted_at IS NULL",
+            )
+            .bind(id)
+            .fetch_one(pool)
+            .await?;
 
         let sql_user_perms =
             sqlx::query!("SELECT token FROM user_permissions WHERE user_id = $1;", id)
@@ -82,34 +90,36 @@ impl User {
                 .await?;
 
         Ok(Self {
-            id: sqluser.id,
-            username: sqluser.username,
-            name: sqluser.name,
-            password: sqluser.password,
+            id: user_id,
+            username,
+            name,
+            password,
             permissions: sql_user_perms.into_iter().map(|x| x.token).collect(),
         })
     }
 
     pub async fn get_from_username(username: &str, pool: &PgPool) -> Result<Self, sqlx::Error> {
-        let sqluser = sqlx::query!(
-            "SELECT id, username, name, password FROM users WHERE username = $1",
-            username
-        )
-        .fetch_one(pool)
-        .await?;
+        let (user_id, db_username, name, password) =
+            sqlx::query_as::<_, (Uuid, String, String, String)>(
+                "SELECT id, username, name, password FROM users \
+                 WHERE username = $1 AND deleted_at IS NULL",
+            )
+            .bind(username)
+            .fetch_one(pool)
+            .await?;
 
         let sql_user_perms = sqlx::query!(
             "SELECT token FROM user_permissions WHERE user_id = $1;",
-            sqluser.id
+            user_id
         )
         .fetch_all(pool)
         .await?;
 
         Ok(Self {
-            id: sqluser.id,
-            name: sqluser.name,
-            username: sqluser.username,
-            password: sqluser.password,
+            id: user_id,
+            name,
+            username: db_username,
+            password,
             permissions: sql_user_perms.into_iter().map(|x| x.token).collect(),
         })
     }
@@ -158,8 +168,14 @@ fn password_check(value: &Secret<String>, _ctx: &()) -> garde::Result {
 fn username_check(value: &str, _ctx: &()) -> garde::Result {
     if !USERNAME_REGEX.is_match(value) {
         return Err(garde::Error::new(
-            "Username can only contain alphanumeric characters and dots",
+            "Username must start with a letter or digit and can only contain alphanumeric characters and dots",
         ));
+    }
+    if value.contains("..") {
+        return Err(garde::Error::new("Username cannot contain '..'"));
+    }
+    if value.len() > 255 {
+        return Err(garde::Error::new("Username is too long"));
     }
     Ok(())
 }

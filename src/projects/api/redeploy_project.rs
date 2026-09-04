@@ -5,7 +5,7 @@ use serde::Serialize;
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
-use crate::{auth::Auth, queue::BuildQueueItem, startup::AppState};
+use crate::{auth::Auth, authz, queue::BuildQueueItem, startup::AppState};
 
 #[derive(Serialize)]
 struct RedeployResponse {
@@ -135,7 +135,13 @@ pub async fn post(
         }
     };
 
-    let container_name = format!("{owner}-{project}").replace('.', "-");
+    let container_name = match authz::container_name(&owner, &project) {
+        Ok(name) => name,
+        Err(err) => {
+            tracing::error!(%owner, %project, %err, "Refusing to redeploy a reserved name");
+            return error_response(StatusCode::BAD_REQUEST, "Invalid project");
+        }
+    };
     let (response_sender, response_receiver) = oneshot::channel();
 
     if build_channel

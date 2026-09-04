@@ -11,7 +11,7 @@ use argon2::{
 };
 use rand::{Rng, SeedableRng};
 
-use crate::{auth::Auth, startup::AppState};
+use crate::{auth::Auth, authz, startup::AppState};
 
 // Base64 url safe
 const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -19,9 +19,9 @@ const TOKEN_LENGTH: usize = 32;
 
 #[derive(Deserialize, Validate, Debug)]
 pub struct CreateProjectRequest {
-    #[garde(length(min = 1))]
+    #[garde(length(min = 1), pattern(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$"))]
     pub owner: String,
-    #[garde(length(min = 1), pattern(r"^[a-z0-9_-]+$"))]
+    #[garde(length(min = 1, max = 100), pattern(r"^[a-z0-9_-]+$"))]
     pub project: String,
 }
 
@@ -68,11 +68,88 @@ pub async fn post(
     };
 
     // Get current user early since we'll need it for project limit check
-    let current_user = auth.current_user.unwrap();
+    let Some(current_user) = auth.current_user else {
+        let json = serde_json::to_string(&ErrorResponse {
+            message: "Unauthorized".to_string(),
+        })
+        .unwrap();
 
-    let path = match project.ends_with(".git") {
-        true => format!("{base}/{owner}/{project}"),
-        false => format!("{base}/{owner}/{project}.git"),
+        return Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .header("Content-Type", "application/json")
+            .body(Body::from(json))
+            .unwrap();
+    };
+
+    // Membership in the target namespace, not just its existence. Previously
+    // any user could create a project inside someone else's namespace, receive
+    // a working git token for it, and deploy on their subdomain.
+    match authz::is_owner_member(&pool, &owner, current_user.id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            let json = serde_json::to_string(&ErrorResponse {
+                message: "Owner does not exist".to_string(),
+            })
+            .unwrap();
+
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header("Content-Type", "application/json")
+                .body(Body::from(json))
+                .unwrap();
+        }
+        Err(err) => {
+            tracing::error!(
+                ?err,
+                "Can't create project: Failed to check owner membership"
+            );
+            let json = serde_json::to_string(&ErrorResponse {
+                message: "Failed to query database".to_string(),
+            })
+            .unwrap();
+
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .header("Content-Type", "application/json")
+                .body(Body::from(json))
+                .unwrap();
+        }
+    }
+
+    // Refuse a name that would resolve to a platform container before the
+    // project row exists. Without this the name is only rejected later, by the
+    // handlers that consume the container -- so the project is created,
+    // deployable, and simultaneously undeletable.
+    if let Err(err) = authz::container_name(&owner, &project) {
+        tracing::warn!(%owner, %project, %err, "Rejected reserved project name");
+        let json = serde_json::to_string(&ErrorResponse {
+            message: "Invalid project".to_string(),
+        })
+        .unwrap();
+
+        return Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .header("Content-Type", "application/json")
+            .body(Body::from(json))
+            .unwrap();
+    }
+
+    // Validated and contained, rather than formatted from request data.
+    let path = match authz::repo_path(&base, &owner, &project) {
+        Ok(path) => path,
+        Err(err) => {
+            tracing::warn!(%owner, %project, %err, "Rejected project creation path");
+            let json = serde_json::to_string(&ErrorResponse {
+                message: "Invalid project".to_string(),
+            })
+            .unwrap();
+
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .header("Content-Type", "application/json")
+                .body(Body::from(json))
+                .unwrap();
+        }
     };
 
     // check if owner exist
@@ -265,14 +342,15 @@ pub async fn post(
         })
         .collect::<String>();
 
-    // Store token as plain text for easier debugging
-    // Keep argon2 imports to avoid compile errors
+    // Stored hashed; the plaintext is returned to the caller once, below, and
+    // is not recoverable afterwards.
+    let token_hash = crate::tokens::hash_token(&token);
 
     if let Err(err) = sqlx::query!(
         "INSERT INTO api_token (id, project_id, token) VALUES ($1, $2, $3)",
         Uuid::from(Ulid::new()),
         project_id,
-        token,
+        token_hash,
     )
     .execute(&mut *tx)
     .await
@@ -319,7 +397,7 @@ pub async fn post(
         owner_name: owner.clone(),
         project_name: project.clone(),
         domain: format!("{protocol}://{domain}/{owner}/{project}"),
-        git_username: username,
+        git_username: owner.clone(),
         git_password: token,
     })
     .unwrap();

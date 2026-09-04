@@ -43,6 +43,60 @@ async fn main() {
         process::exit(1);
     }
 
+    // Refuse to start quietly on an unmigrated database. verify_token rejects
+    // any api_token row that is not a SHA-256 digest, so deploying without
+    // running migrate_git_tokens silently revokes git push for every existing
+    // project while /health keeps returning 200 -- the deploy script's rollback
+    // would never fire and the breakage would surface only as student reports.
+    match sqlx::query_scalar::<_, i64>(
+        r#"SELECT count(*) FROM api_token
+           JOIN projects ON api_token.project_id = projects.id
+           WHERE projects.deleted_at IS NULL
+             AND api_token.token NOT LIKE 'sha256:%'
+             AND api_token.token NOT LIKE '$argon2%'"#,
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(0) => {}
+        Ok(unconverted) => {
+            tracing::error!(
+                unconverted,
+                "Refusing to start: {unconverted} git token(s) are still plaintext, so every \
+                 push to those projects would fail. Run: docker compose run --rm --entrypoint \
+                 /app/migrate_git_tokens server --hash"
+            );
+            process::exit(1);
+        }
+        Err(err) => {
+            tracing::error!(?err, "Failed to check git token migration state");
+            process::exit(1);
+        }
+    }
+
+    // Argon2 rows are deliberately excluded from the gate above. They came from
+    // an earlier revision of this branch and cannot be converted -- the
+    // plaintext is unrecoverable -- so the owner has to regenerate through the
+    // running application. Refusing to boot on them would be a deadlock: the
+    // only remedy requires the server that is refusing to start.
+    match sqlx::query_scalar::<_, i64>(
+        r#"SELECT count(*) FROM api_token
+           JOIN projects ON api_token.project_id = projects.id
+           WHERE projects.deleted_at IS NULL
+             AND api_token.token LIKE '$argon2%'"#,
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(0) => {}
+        Ok(stuck) => tracing::warn!(
+            stuck,
+            "{stuck} project(s) hold an unconvertible Argon2 git token; their pushes will fail \
+             until each owner regenerates from project settings"
+        ),
+        Err(err) => tracing::warn!(?err, "Failed to count Argon2 git tokens"),
+    }
+
     // Atlas migration check removed - using schema.sql initialization instead
 
     // check docker permissions
@@ -104,7 +158,7 @@ async fn main() {
     let state = startup::AppState {
         base: config.git.base.clone(),
         git_auth: config.git.auth,
-        sso: config.auth.sso.clone(),
+        sso: config.auth.sso,
         client: Client::new(),
         domain: config.domain(),
         build_channel,

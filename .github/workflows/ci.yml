@@ -1,8 +1,10 @@
 name: CI
 
 on:
+  # No branch filter on pull_request. A stacked PR targets the branch below it
+  # rather than master, so filtering on [master] left every PR above the bottom
+  # of a stack with no checks at all.
   pull_request:
-    branches: [master]
   push:
     branches: [master]
   workflow_dispatch:
@@ -21,17 +23,35 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SQLX_OFFLINE: true
+      # The authorization helpers are runtime sqlx::query calls, not the
+      # compile-checked macro, so a mistake in their SQL is invisible until
+      # executed. tests/authz.rs skips itself when this is unset -- which would
+      # make a database-less run look identical to a real one -- so CI supplies
+      # a real Postgres and the tests actually run.
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+    services:
+      postgres:
+        image: postgres:16.0-alpine3.18
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: ${{ env.PNPM_VERSION }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -42,13 +62,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Set up Rust
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
           components: rustfmt, clippy
 
       - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -58,8 +78,7 @@ jobs:
           cargo check --locked --all-targets
           cargo test --locked --all-targets
 
-      - name: Run Clippy (advisory)
-        continue-on-error: true
+      - name: Run Clippy
         run: cargo clippy --locked --all-targets -- -D warnings
 
   frontend:
@@ -67,15 +86,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: ${{ env.PNPM_VERSION }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -87,6 +106,11 @@ jobs:
         working-directory: ui
         run: pnpm install --frozen-lockfile
 
+      # Advisory until the baseline is cleared: 47 pre-existing errors, all
+      # style-level (no-explicit-any, ban-ts-comment, unused vars). Unlike
+      # Clippy these could not be frozen without switching off most of the
+      # useful rules, so this stays advisory rather than gating on a check
+      # that is guaranteed to fail.
       - name: Lint UI (advisory)
         working-directory: ui
         continue-on-error: true
@@ -100,6 +124,7 @@ jobs:
         working-directory: docs-ui
         run: pnpm install --frozen-lockfile
 
+      # Advisory: could not be verified outside CI, so not made gating blind.
       - name: Typecheck documentation (advisory)
         working-directory: docs-ui
         continue-on-error: true
@@ -118,21 +143,21 @@ jobs:
       packages: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Log in to GitHub Container Registry
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build container image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: ./Dockerfile

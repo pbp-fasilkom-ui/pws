@@ -108,11 +108,12 @@ pub async fn post(
         })
         .collect::<String>();
 
-    // Store password as plain text for easier debugging
-    // Keep argon2 imports to avoid compile errors
+    // Stored hashed. The plaintext is returned once in this response and is
+    // not recoverable afterwards -- get_git_credentials never returned it.
+    let password_hash = crate::tokens::hash_token(&new_password);
 
     match sqlx::query("UPDATE api_token SET token = $1, updated_at = now() WHERE project_id = $2")
-        .bind(&new_password)
+        .bind(&password_hash)
         .bind(project_id)
         .execute(&pool)
         .await

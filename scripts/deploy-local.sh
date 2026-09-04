@@ -76,6 +76,22 @@ rollback() {
 echo "Building $image_ref locally using Docker's build cache"
 PWS_IMAGE="$image_ref" docker compose build "$service_name"
 
+# Convert any git token still stored in plaintext, using the image that was
+# just built. The server refuses to start while unconverted rows remain -- it
+# would otherwise come up healthy and silently reject every push -- so without
+# this step the first deploy of that change fails its health check and rolls
+# back, and would keep doing so until someone ran the migration by hand.
+#
+# Idempotent: already-converted rows are skipped, so this is a no-op on every
+# subsequent deploy. --hash preserves existing credentials; revoking leaked
+# ones is a deliberate, separate --invalidate run.
+echo "Converting any plaintext git tokens"
+if ! PWS_IMAGE="$image_ref" docker compose run --rm --no-deps \
+  --entrypoint /app/migrate_git_tokens "$service_name" --hash; then
+  echo "Token migration failed; leaving the running container untouched." >&2
+  exit 1
+fi
+
 echo "Starting $service_name with $image_ref"
 if ! PWS_IMAGE="$image_ref" docker compose up -d --no-build --no-deps "$service_name"; then
   echo "Container restart failed; attempting rollback." >&2

@@ -98,10 +98,24 @@ pub async fn get(
         LIMIT 1"#,
     )
     .bind(project_record.0)
-    .fetch_one(&pool)
+    .fetch_optional(&pool)
     .await
     {
-        Ok(record) => record,
+        // A project with no builds yet is a normal state; fetch_one made it a
+        // 500 on every freshly created project.
+        Ok(Some(record)) => record,
+        Ok(None) => {
+            let json = serde_json::to_string(&ErrorResponse {
+                error: "No builds yet".to_string(),
+            })
+            .unwrap();
+
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .header("Content-Type", "application/json")
+                .body(Body::from(json))
+                .unwrap();
+        }
         Err(err) => {
             tracing::error!(?err, "Failed to query build status");
             let json = serde_json::to_string(&ErrorResponse {

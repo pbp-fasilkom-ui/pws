@@ -190,7 +190,7 @@ pub async fn build_docker(
             let environment_strings = match envs.environs.as_object() {
                 Some(map) => map
                     .into_iter()
-                    .map(|(key, value)| format!("{}={}", key, value.as_str().unwrap_or("")))
+                    .map(|(key, value)| (key.clone(), value.as_str().unwrap_or("").to_string()))
                     .collect::<Vec<_>>(),
                 None => Vec::new(),
             };
@@ -369,7 +369,7 @@ pub async fn build_docker(
         Some(map) => {
             let environment_strings = map
                 .into_iter()
-                .map(|(key, value)| format!("{}={}", key, value.as_str().unwrap()))
+                .map(|(key, value)| format!("{}={}", key, value.as_str().unwrap_or("")))
                 .collect::<Vec<_>>();
 
             Ok(environment_strings)
@@ -438,6 +438,22 @@ pub async fn build_docker(
             memory_swap: Some(config.container_swap_bytes().unwrap_or(320 * 1024 * 1024)),
             cpu_quota: Some(config.container_cpu_quota()),
             cpu_period: Some(config.container_cpu_period()),
+            // These containers run arbitrary student code and previously had no
+            // hardening beyond CPU and memory caps.
+            //
+            // Drop every capability: a web application needs none of them, and
+            // the image's own USER is attacker-chosen, so it is generally root.
+            cap_drop: Some(vec!["ALL".to_string()]),
+            // Dropping ALL also removes CAP_NET_BIND_SERVICE, and the generated
+            // Dockerfile binds 0.0.0.0:80 -- a privileged port -- so every
+            // deployment would fail to bind. Add back only that one capability.
+            cap_add: Some(vec!["NET_BIND_SERVICE".to_string()]),
+            // Block setuid escalation, so dropping capabilities cannot be
+            // undone from inside the container.
+            security_opt: Some(vec!["no-new-privileges:true".to_string()]),
+            // Cap process count: a fork bomb in one project should not take the
+            // host down for everyone.
+            pids_limit: Some(256),
             ..Default::default()
         }),
         ..Default::default()

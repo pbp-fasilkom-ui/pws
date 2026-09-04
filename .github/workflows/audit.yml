@@ -1,0 +1,59 @@
+name: Audit
+
+# Deliberately a separate workflow. The CD workflow triggers on the CI
+# workflow's conclusion, so a job inside CI that fails blocks every production
+# deploy. Dependency advisories are published upstream at arbitrary times and
+# would then stop deployment with no change to this repository -- an advisory
+# should page someone, not wedge the pipeline.
+
+on:
+  # Unfiltered, so stacked PRs (which target the branch below them, not master)
+  # are scanned too.
+  pull_request:
+  push:
+    branches: [master]
+  schedule:
+    # Weekly, so a newly published advisory surfaces without a push.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Dependency advisories
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # rustsec/audit-check creates a check run; without this it fails on
+      # permissions rather than on findings.
+      checks: write
+    env:
+      # Outranks rust-toolchain.toml, which would otherwise pull the pinned
+      # 1.72.0 toolchain and its unavailable components. See the comment on the
+      # Set up Rust step.
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      # rust-toolchain.toml pins 1.72.0 with profile = "complete", which asks
+      # rustup for every component -- including miri, which was never published
+      # for that channel -- so resolving it fails before cargo audit runs.
+      #
+      # Installing a toolchain is not sufficient on its own: dtolnay's action
+      # runs `rustup default stable`, and a rust-toolchain.toml in the working
+      # directory outranks the default. RUSTUP_TOOLCHAIN (set on the job below)
+      # is what actually outranks the file. cargo-audit only parses Cargo.lock
+      # and never compiles the crate, so the project's toolchain is irrelevant
+      # to it.
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
+        with:
+          toolchain: stable
+
+      - name: Audit Rust dependencies
+        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

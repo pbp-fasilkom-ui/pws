@@ -4,7 +4,7 @@ use hyper::{Body, StatusCode};
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::{auth::Auth, startup::AppState};
+use crate::{auth::Auth, authz, startup::AppState};
 use sqlx::Row;
 
 #[derive(Serialize, Debug)]
@@ -31,7 +31,7 @@ pub async fn get(
     State(AppState { pool, .. }): State<AppState>,
     Path((owner, project)): Path<(String, String)>,
 ) -> Response<Body> {
-    let Some(_user) = auth.current_user else {
+    let Some(user) = auth.current_user else {
         let json = serde_json::to_string(&ErrorResponse {
             message: "Unauthorized".to_string(),
         })
@@ -42,6 +42,35 @@ pub async fn get(
             .body(Body::from(json))
             .unwrap();
     };
+
+    // Membership is only visible to people on the project. This listing
+    // exposes usernames and real names, which fed account enumeration.
+    match authz::has_project_access(&pool, &owner, &project, user.id).await {
+        Ok(true) => {}
+        Ok(false) => {
+            let json = serde_json::to_string(&ErrorResponse {
+                message: "Project not found or you don't have access".to_string(),
+            })
+            .unwrap();
+            return Response::builder()
+                .status(StatusCode::NOT_FOUND)
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json))
+                .unwrap();
+        }
+        Err(err) => {
+            tracing::error!(?err, "Can't list members: Failed to check project access");
+            let json = serde_json::to_string(&ErrorResponse {
+                message: "Failed to check project access".to_string(),
+            })
+            .unwrap();
+            return Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .header(axum::http::header::CONTENT_TYPE, "application/json")
+                .body(Body::from(json))
+                .unwrap();
+        }
+    }
 
     // Get project ID
     let project_record = sqlx::query(

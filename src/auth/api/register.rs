@@ -209,120 +209,30 @@ pub async fn register_user(
         }
     };
 
-    // TODO: use actual sso and not proxy
+    // When SSO is enabled, accounts are provisioned through the CAS callback in
+    // auth::api::sso, which validates the ticket with the university directly
+    // and applies the same faculty check.
+    //
+    // This branch used to POST the submitted username and *plaintext password*
+    // to https://sso.mus.sh -- a third-party host, not an institutional one --
+    // to verify them by proxy. Password registration is refused instead, so
+    // university credentials never leave this service.
     if sso {
-        // TODO: not sure if this is the best way to do this
-        let client = reqwest::Client::new();
-        let res = match client
-            .post("https://sso.mus.sh")
-            .body(
-                serde_json::json!({
-                    "username": username,
-                    "password": password.expose_secret(),
-                    "casUrl": "https://sso.ui.ac.id/cas/",
-                    "serviceUrl": "http%3A%2F%2Fberanda.ui.ac.id%2Fpersonal%2F",
-                    "EncodeUrl": true
-                })
-                .to_string(),
-            )
-            .send()
-            .await
-        {
-            Ok(res) => res,
-            Err(err) => {
-                tracing::error!(?err, "Can't register user: Failed to request sso");
-                if let Err(err) = tx.rollback().await {
-                    tracing::error!(?err, "Can't register user: Failed to rollback transaction");
-                }
-
-                let json = serde_json::to_string(&ErrorResponse {
-                    message: format!("failed to request sso: {}", err.to_string()),
-                    error_type: RegisterUserErrorType::InternalServerError,
-                })
-                .unwrap();
-
-                return Response::builder()
-                    .status(StatusCode::BAD_REQUEST)
-                    .header("Content-Type", "text/html")
-                    .body(Body::from(json))
-                    .unwrap();
-            }
-        };
-
-        let body = match res.bytes().await {
-            Ok(body) => body,
-            Err(err) => {
-                tracing::error!(?err, "Can't register user: Failed to get body");
-                if let Err(err) = tx.rollback().await {
-                    tracing::error!(?err, "Can't register user: Failed to rollback transaction");
-                }
-
-                let json = serde_json::to_string(&ErrorResponse {
-                    message: format!("failed to get body: {}", err.to_string()),
-                    error_type: RegisterUserErrorType::SSOError,
-                })
-                .unwrap();
-
-                return Response::builder()
-                    .status(StatusCode::BAD_REQUEST)
-                    .header("Content-Type", "text/html")
-                    .body(Body::from(json))
-                    .unwrap();
-            }
-        };
-
-        tracing::warn!(?body);
-
-        let sso_res = match serde_json::from_slice::<SsoResponse>(&body) {
-            Ok(SsoResponse::ServiceResponse { service_response }) => {
-                service_response.authentication_success.attributes
-            }
-            Ok(SsoResponse::Error { .. }) => {
-                let json = serde_json::to_string(&ErrorResponse {
-                    message: "Wrong username or password".to_string(),
-                    error_type: RegisterUserErrorType::SSOError,
-                })
-                .unwrap();
-
-                return Response::builder()
-                    .status(StatusCode::BAD_REQUEST)
-                    .header("Content-Type", "text/html")
-                    .body(Body::from(json))
-                    .unwrap();
-            }
-            Err(err) => {
-                tracing::error!(?err, "Can't register user: Failed to parse body");
-                if let Err(err) = tx.rollback().await {
-                    tracing::error!(?err, "Can't register user: Failed to rollback transaction");
-                }
-
-                let json = serde_json::to_string(&ErrorResponse {
-                    message: format!("failed to parse body: {}", err.to_string()),
-                    error_type: RegisterUserErrorType::SSOError,
-                })
-                .unwrap();
-
-                return Response::builder()
-                    .status(StatusCode::BAD_REQUEST)
-                    .header("Content-Type", "text/html")
-                    .body(Body::from(json))
-                    .unwrap();
-            }
-        };
-
-        if sso_res.jurusan.faculty != "Ilmu Komputer" {
-            let json = serde_json::to_string(&ErrorResponse {
-                message: "User is not from UI Faculty of Computer Science".to_string(),
-                error_type: RegisterUserErrorType::SSOError,
-            })
-            .unwrap();
-
-            return Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("Content-Type", "text/html")
-                .body(Body::from(json))
-                .unwrap();
+        if let Err(err) = tx.rollback().await {
+            tracing::error!(?err, "Can't register user: Failed to rollback transaction");
         }
+
+        let json = serde_json::to_string(&ErrorResponse {
+            message: "Password registration is disabled; sign in with SSO".to_string(),
+            error_type: RegisterUserErrorType::SSOError,
+        })
+        .unwrap();
+
+        return Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .header("Content-Type", "application/json")
+            .body(Body::from(json))
+            .unwrap();
     }
 
     if let Err(err) = sqlx::query!(

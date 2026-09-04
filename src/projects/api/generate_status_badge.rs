@@ -91,38 +91,50 @@ pub async fn get(
         ORDER BY created_at DESC"#,
         project_record.id
     )
-    .fetch_one(&pool)
+    .fetch_optional(&pool)
     .await
     {
         Ok(record) => record,
         Err(err) => {
+            // This route is unauthenticated, so the sqlx error text -- which
+            // names tables, columns and constraints -- must not be returned.
+            tracing::error!(?err, "Failed to query build status for badge");
             let json = serde_json::to_string(&ErrorResponse {
-                message: format!("Failed to query database: {}", err.to_string())
-            }).unwrap();
+                message: "Failed to query database".to_string(),
+            })
+            .unwrap();
 
             return Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .body(Body::from(json))
                 .unwrap();
-        },
+        }
     };
 
     let mut style = badgen::Style::flat();
 
-    style.background = match &build.status {
-        BuildState::PENDING => badgen::Color::Grey,
-        BuildState::FAILED => badgen::Color::Red,
-        BuildState::SUCCESSFUL => badgen::Color::Green,
-        BuildState::BUILDING => badgen::Color::Yellow,
+    // A project that has never been built is a normal state, not an error;
+    // fetch_one turned it into a 500 for every freshly created project.
+    let (label, colour) = match build.as_ref().map(|b| &b.status) {
+        Some(BuildState::PENDING) => ("pending", badgen::Color::Grey),
+        Some(BuildState::FAILED) => ("failed", badgen::Color::Red),
+        Some(BuildState::SUCCESSFUL) => ("successful", badgen::Color::Green),
+        Some(BuildState::BUILDING) => ("building", badgen::Color::Yellow),
+        None => ("no builds", badgen::Color::Grey),
     };
+    style.background = colour;
 
-    let badge = badgen::badge(&style, &build.status.to_string(), Some("PWS Build Status")).unwrap();
+    let badge = badgen::badge(&style, label, Some("PWS Build Status")).unwrap();
 
-    Response::builder()
+    let mut response = Response::builder()
         .status(StatusCode::OK)
         .header("Content-Type", "image/svg+xml")
-        .header("Cache-Control", "no-cache")
-        .header("Last-Modified", build.updated_at.to_rfc2822())
-        .body(Body::from(badge))
-        .unwrap()
+        .header("Cache-Control", "no-cache");
+
+    // Only meaningful once a build exists.
+    if let Some(build) = build.as_ref() {
+        response = response.header("Last-Modified", build.updated_at.to_rfc2822());
+    }
+
+    response.body(Body::from(badge)).unwrap()
 }
