@@ -16,16 +16,28 @@ pub struct CreateProjectOwnerRequest {
     // of a container name, so they need the same charset restriction that
     // project names already had. Dots stay permitted because usernames contain
     // them, but a leading dot and `..` are not representable.
-    #[garde(length(min = 1, max = 128), pattern(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$"))]
+    // Deliberately the same charset as usernames (src/auth/mod.rs). Allowing
+    // '-' or '_' here would let an owner named `a-b` collide with the user
+    // `a.b`, because container names replace dots with dashes -- two tenants
+    // deriving one container name.
+    #[garde(length(min = 1, max = 128), pattern(r"^[a-zA-Z0-9][a-zA-Z0-9.]*$"))]
     pub name: String,
 }
 
-#[tracing::instrument(skip(_auth, pool))]
+#[tracing::instrument(skip(auth, pool))]
 pub async fn post(
-    _auth: Auth,
+    auth: Auth,
     State(AppState { pool, .. }): State<AppState>,
     Form(req): Form<Unvalidated<CreateProjectOwnerRequest>>,
 ) -> Response<Body> {
+    let Some(user) = auth.current_user else {
+        return Response::builder()
+            .status(StatusCode::UNAUTHORIZED)
+            .header("Content-Type", "text/html")
+            .body(Body::from("Unauthorized"))
+            .unwrap();
+    };
+
     let data = match req.validate(&()) {
         Ok(valid) => valid.into_inner(),
         Err(err) => {
@@ -140,6 +152,29 @@ pub async fn post(
             .status(StatusCode::BAD_REQUEST)
             .header("Content-Type", "text/html")
             .body(Body::from(html))
+            .unwrap();
+    }
+
+    // Without this the namespace has no member, so `authz::is_owner_member`
+    // rejects every attempt to create a project in it -- leaving the namespace
+    // permanently unusable by anyone, including whoever created it.
+    if let Err(err) = sqlx::query!(
+        r#"INSERT INTO users_owners (user_id, owner_id) VALUES ($1, $2)"#,
+        user.id,
+        owner_id,
+    )
+    .execute(&mut *tx)
+    .await
+    {
+        tracing::error!(?err, "Can't link project owner to its creator");
+        if let Err(err) = tx.rollback().await {
+            tracing::error!(?err, "Failed to rollback transaction");
+        }
+
+        return Response::builder()
+            .status(StatusCode::INTERNAL_SERVER_ERROR)
+            .header("Content-Type", "text/html")
+            .body(Body::from("Failed to create owner"))
             .unwrap();
     }
 
