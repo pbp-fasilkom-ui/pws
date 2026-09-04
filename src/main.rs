@@ -52,7 +52,8 @@ async fn main() {
         r#"SELECT count(*) FROM api_token
            JOIN projects ON api_token.project_id = projects.id
            WHERE projects.deleted_at IS NULL
-             AND api_token.token NOT LIKE 'sha256:%'"#,
+             AND api_token.token NOT LIKE 'sha256:%'
+             AND api_token.token NOT LIKE '$argon2%'"#,
     )
     .fetch_one(&pool)
     .await
@@ -61,8 +62,8 @@ async fn main() {
         Ok(unconverted) => {
             tracing::error!(
                 unconverted,
-                "Refusing to start: {unconverted} git token(s) are not hashed, so every push \
-                 to those projects would fail. Run: docker compose run --rm --entrypoint \
+                "Refusing to start: {unconverted} git token(s) are still plaintext, so every \
+                 push to those projects would fail. Run: docker compose run --rm --entrypoint \
                  /app/migrate_git_tokens server --hash"
             );
             process::exit(1);
@@ -71,6 +72,29 @@ async fn main() {
             tracing::error!(?err, "Failed to check git token migration state");
             process::exit(1);
         }
+    }
+
+    // Argon2 rows are deliberately excluded from the gate above. They came from
+    // an earlier revision of this branch and cannot be converted -- the
+    // plaintext is unrecoverable -- so the owner has to regenerate through the
+    // running application. Refusing to boot on them would be a deadlock: the
+    // only remedy requires the server that is refusing to start.
+    match sqlx::query_scalar::<_, i64>(
+        r#"SELECT count(*) FROM api_token
+           JOIN projects ON api_token.project_id = projects.id
+           WHERE projects.deleted_at IS NULL
+             AND api_token.token LIKE '$argon2%'"#,
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(0) => {}
+        Ok(stuck) => tracing::warn!(
+            stuck,
+            "{stuck} project(s) hold an unconvertible Argon2 git token; their pushes will fail \
+             until each owner regenerates from project settings"
+        ),
+        Err(err) => tracing::warn!(?err, "Failed to count Argon2 git tokens"),
     }
 
     // Atlas migration check removed - using schema.sql initialization instead
