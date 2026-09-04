@@ -1,8 +1,10 @@
 name: CI
 
 on:
+  # No branch filter on pull_request. A stacked PR targets the branch below it
+  # rather than master, so filtering on [master] left every PR above the bottom
+  # of a stack with no checks at all.
   pull_request:
-    branches: [master]
   push:
     branches: [master]
   workflow_dispatch:

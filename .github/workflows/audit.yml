@@ -7,8 +7,9 @@ name: Audit
 # should page someone, not wedge the pipeline.
 
 on:
+  # Unfiltered, so stacked PRs (which target the branch below them, not master)
+  # are scanned too.
   pull_request:
-    branches: [master]
   push:
     branches: [master]
   schedule:
