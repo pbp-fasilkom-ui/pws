@@ -140,12 +140,15 @@ docker compose run --rm --entrypoint /app/migrate_git_tokens server --hash
 docker compose run --rm --entrypoint /app/invalidate_weak_passwords server --apply
 ```
 
-Run `migrate_git_tokens` **before** the new server serves traffic: it accepts
-only a stored SHA-256 digest and refuses a plaintext value, so pushes fail until
-the rows are converted. The server now counts unconverted rows at startup and
-refuses to boot while any remain, rather than starting healthy and silently
-rejecting every push — but that means an unmigrated deploy fails its health
-check and rolls back, so schedule the migration first.
+`scripts/deploy-local.sh` runs `migrate_git_tokens --hash` automatically after
+building the image and before starting the container, so a normal deploy needs
+no manual step. It is idempotent — already-converted rows are skipped — and a
+failure there aborts the deploy without touching the running container.
+
+Run it by hand only to revoke leaked credentials (`--invalidate`), or to inspect
+before deploying. The server counts unconverted rows at startup and refuses to
+boot while any remain, rather than starting healthy and silently rejecting every
+push.
 
 Note `invalidate_weak_passwords` also catches password-registered users who
 chose their username as their password, and there is no self-service password
