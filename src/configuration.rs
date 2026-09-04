@@ -195,7 +195,14 @@ impl Settings {
             // which are same-site; the encrypted cookie below is what stops
             // them injecting a session for the parent domain.
             .with_cookie_same_site(SameSite::Lax)
-            .with_key(key)
+            // BOTH keys are required. `with_key` encrypts the cookie;
+            // `with_database_key` encrypts the per-session key row, and
+            // SecurityMode::PerSession unwraps it on every request -- leaving it
+            // unset panics on each session-bearing request. /health sits outside
+            // the session layers, so it would keep returning 200 and the deploy
+            // health check would report success through a total outage.
+            .with_key(key.clone())
+            .with_database_key(key)
             .with_security_mode(SecurityMode::PerSession)
     }
 
