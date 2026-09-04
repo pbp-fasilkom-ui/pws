@@ -444,6 +444,10 @@ pub async fn build_docker(
             // Drop every capability: a web application needs none of them, and
             // the image's own USER is attacker-chosen, so it is generally root.
             cap_drop: Some(vec!["ALL".to_string()]),
+            // Dropping ALL also removes CAP_NET_BIND_SERVICE, and the generated
+            // Dockerfile binds 0.0.0.0:80 -- a privileged port -- so every
+            // deployment would fail to bind. Add back only that one capability.
+            cap_add: Some(vec!["NET_BIND_SERVICE".to_string()]),
             // Block setuid escalation, so dropping capabilities cannot be
             // undone from inside the container.
             security_opt: Some(vec!["no-new-privileges:true".to_string()]),
