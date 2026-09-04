@@ -1,6 +1,7 @@
+use axum::body::Body;
 use axum::extract::{Path, State};
+use axum::http::StatusCode;
 use axum::response::Response;
-use hyper::{Body, StatusCode};
 use uuid::Uuid;
 
 use crate::{auth::Auth, authz, startup::AppState};

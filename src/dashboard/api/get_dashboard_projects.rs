@@ -1,7 +1,8 @@
 use crate::{auth::Auth, startup::AppState};
+use axum::body::Body;
 use axum::extract::State;
+use axum::http::StatusCode;
 use axum::response::Response;
-use hyper::{Body, StatusCode};
 use serde::Serialize;
 use sqlx::Row;
 use uuid::Uuid;

@@ -11,8 +11,9 @@ use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use axum::extract::Request;
 use axum::extract::{ConnectInfo, State};
-use axum::http::{HeaderMap, Request, StatusCode};
+use axum::http::{HeaderMap, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use std::net::SocketAddr;
@@ -91,11 +92,11 @@ fn client_ip(headers: &HeaderMap, peer: SocketAddr) -> IpAddr {
         .unwrap_or_else(|| peer.ip())
 }
 
-pub async fn rate_limit<B>(
+pub async fn rate_limit(
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     State(limiter): State<RateLimiter>,
-    request: Request<B>,
-    next: Next<B>,
+    request: Request,
+    next: Next,
 ) -> Response {
     let ip = client_ip(request.headers(), peer);
 

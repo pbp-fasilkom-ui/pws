@@ -1,10 +1,10 @@
+use axum::body::Body;
 use axum::{
     middleware,
     routing::{get, post},
     Router,
 };
 use axum_extra::routing::RouterExt;
-use hyper::Body;
 
 use crate::rate_limit::{rate_limit, RateLimiter};
 use crate::{configuration::Settings, startup::AppState};
@@ -15,7 +15,7 @@ mod register;
 mod sso;
 mod validate;
 
-pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {
+pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState> {
     // Endpoints that accept credentials or a ticket. Without a limit here,
     // online guessing against /api/login was free.
     let credential_routes = Router::new()
