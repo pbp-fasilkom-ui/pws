@@ -281,8 +281,15 @@ services:
       # Security headers, applied to every router below. None of these were set
       # on any response.
       - "traefik.http.middlewares.security-headers.headers.stsSeconds=31536000"
+      # includeSubdomains covers every student app subdomain, which are served
+      # by the manually renewed wildcard in ./ssl. That is deliberate, but it
+      # means a lapsed wildcard locks students out rather than showing a
+      # click-through warning -- the renewal is a hard dependency, not a chore.
       - "traefik.http.middlewares.security-headers.headers.stsIncludeSubdomains=true"
-      - "traefik.http.middlewares.security-headers.headers.stsPreload=true"
+      # No stsPreload. Sending it asks browsers to hard-code HTTPS-only for this
+      # domain and every subdomain; removal takes months and cannot be rushed.
+      # It should only be sent by someone who has deliberately submitted the
+      # domain to the preload list and can guarantee HTTPS everywhere under it.
       - "traefik.http.middlewares.security-headers.headers.contentTypeNosniff=true"
       - "traefik.http.middlewares.security-headers.headers.browserXssFilter=true"
       - "traefik.http.middlewares.security-headers.headers.frameDeny=true"

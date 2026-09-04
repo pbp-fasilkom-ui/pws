@@ -61,6 +61,16 @@ async fn main() {
         }
     };
 
+    // One transaction for the whole run: a failure part-way through previously
+    // left some accounts invalidated and others not, with no record of which.
+    let mut tx = match pool.begin().await {
+        Ok(tx) => tx,
+        Err(err) => {
+            eprintln!("Failed to begin transaction: {err:?}");
+            process::exit(1);
+        }
+    };
+
     let argon2 = Argon2::default();
     let mut affected = 0usize;
     let mut unparseable = 0usize;
@@ -107,7 +117,7 @@ async fn main() {
             sqlx::query("UPDATE users SET password = $1, updated_at = now() WHERE id = $2")
                 .bind(&hash)
                 .bind(id)
-                .execute(&pool)
+                .execute(&mut *tx)
                 .await
         {
             eprintln!("Failed to update {username}: {err:?}");
@@ -115,6 +125,15 @@ async fn main() {
         }
 
         println!("invalidated: {username} ({id})");
+    }
+
+    if apply {
+        if let Err(err) = tx.commit().await {
+            eprintln!("Failed to commit: {err:?}");
+            process::exit(1);
+        }
+    } else if let Err(err) = tx.rollback().await {
+        eprintln!("Failed to roll back dry run: {err:?}");
     }
 
     println!(
