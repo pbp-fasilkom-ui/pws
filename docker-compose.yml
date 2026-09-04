@@ -209,10 +209,24 @@ services:
     image: traefik:v3.6
     env_file: .env
     command: 
-      # The API and dashboard were served with no authentication at all.
-      # /api/rawdata returned the full routing table and internal service map.
-      # Kept enabled but published on loopback only (see ports below).
+      # The API and dashboard were served with no authentication at all, and
+      # /api/rawdata returns the full routing table and internal service map.
+      #
+      # Publishing on the host's loopback was not enough: a published port only
+      # constrains access from the HOST. Traefik sits on both docker networks,
+      # so any container -- including every student app -- could still reach
+      # traefik-pemasak:8080 directly.
+      #
+      # Binding the API's entrypoint to the container's own loopback removes it
+      # from every network while keeping the dashboard and API intact. Reach it
+      # from the VM with (note the IPv4 literal -- `localhost` resolves to ::1,
+      # which this does not bind):
+      #   docker exec traefik-pemasak wget -qO- http://127.0.0.1:8080/api/rawdata
+      # Verified: refused from any other container, port 80/443 routing
+      # unaffected. Browser access to the dashboard needs a temporary
+      # republish -- see README.
       - --api.insecure=true
+      - --entrypoints.traefik.address=127.0.0.1:8080
       # Only the docker networks may supply forwarded headers; values arriving
       # from anywhere else are replaced rather than appended to. Together with
       # taking the right-most X-Forwarded-For entry in src/rate_limit.rs, this
@@ -242,9 +256,9 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      # Loopback only. Reach the dashboard through an SSH tunnel:
-      #   ssh -L 7070:127.0.0.1:7070 <host>
-      - "127.0.0.1:7070:8080"
+      # No mapping for the API: it binds the container's loopback (see the
+      # entrypoint flag above), which docker port publishing cannot forward to.
+      # That is the point -- it is reachable only from inside the container.
     depends_on:
       server:
         condition: service_started

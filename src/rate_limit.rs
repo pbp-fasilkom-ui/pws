@@ -18,7 +18,13 @@ use axum::response::{IntoResponse, Response};
 use std::net::SocketAddr;
 
 /// Requests allowed per client per window.
-const MAX_REQUESTS: u32 = 10;
+///
+/// Deliberately generous. The key is a client address, and a university lab
+/// sits behind one NAT -- at a strict setting a whole class starting at once
+/// locks itself out. Credential guessing needs thousands of attempts to be
+/// worth anything, so this still removes the attack while leaving normal shared
+/// egress far below the ceiling.
+const MAX_REQUESTS: u32 = 60;
 /// Length of the window.
 const WINDOW: Duration = Duration::from_secs(60);
 /// Upper bound on tracked clients, so the map cannot grow without limit.

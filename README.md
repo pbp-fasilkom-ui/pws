@@ -153,6 +153,34 @@ reset in this codebase. Read the dry-run output before applying: SSO users
 recover by signing in through CAS, but a password-only account caught by it has
 to be reset with direct SQL.
 
+**Traefik dashboard and API.** The API is bound to the Traefik container's own
+loopback (`--entrypoints.traefik.address=127.0.0.1:8080`). Publishing it on the
+host's loopback was not sufficient: a published port constrains only host
+access, and Traefik sits on both docker networks, so every student container
+could reach `traefik-pemasak:8080` and read the full routing table.
+
+Reach it from the VM with the IPv4 literal -- `localhost` resolves to `::1`,
+which is not bound:
+
+```bash
+docker exec traefik-pemasak wget -qO- http://127.0.0.1:8080/api/rawdata
+docker exec traefik-pemasak wget -qO- http://127.0.0.1:8080/api/overview
+```
+
+Verified: refused from any other container, and ports 80/443 routing is
+unaffected. Viewing the dashboard in a browser now requires temporarily
+republishing the port (a compose override), because a port cannot be published
+into a namespace bound to loopback.
+
+**Student images and container hardening.** Project containers run with
+`cap_drop: ALL`, a single `cap_add: NET_BIND_SERVICE` so a server can bind port
+80, and `no-new-privileges`. Images that rely on `gosu`/`su-exec` to step down
+from root at startup, or that need a capability beyond binding a low port, will
+fail to start and must be adjusted -- typically by running as a non-root `USER`
+in the Dockerfile rather than dropping privileges at runtime. The generated
+Django image is unaffected. This is a deliberate trade: it is the containment
+that keeps a compromised project off the host.
+
 **Check for names the new validation rejects.** Owner and project names are now
 refused if they start with a dot or contain `..`, since both become filesystem
 paths. Such names were previously accepted. Run this before deploying; any rows
