@@ -227,12 +227,12 @@ services:
       # republish -- see README.
       - --api.insecure=true
       - --entrypoints.traefik.address=127.0.0.1:8080
-      # Only the docker networks may supply forwarded headers; values arriving
-      # from anywhere else are replaced rather than appended to. Together with
-      # taking the right-most X-Forwarded-For entry in src/rate_limit.rs, this
-      # stops a caller choosing its own rate-limit bucket.
-      - --entrypoints.web.forwardedHeaders.trustedIPs=172.20.0.0/16,172.21.0.0/16
-      - --entrypoints.websecure.forwardedHeaders.trustedIPs=172.20.0.0/16,172.21.0.0/16
+      # No forwardedHeaders.trustedIPs on purpose. Listing the docker subnets
+      # here trusted 172.20.0.0/16 -- the STUDENT network -- so a project
+      # container, which can reach Traefik on :80, could supply its own
+      # X-Forwarded-For and have it preserved. With no trusted source Traefik
+      # overwrites the header with the address it actually observed, which is
+      # exactly what src/rate_limit.rs needs to key on.
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
       - --accesslog=true

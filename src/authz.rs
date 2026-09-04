@@ -18,6 +18,13 @@ use uuid::Uuid;
 /// git access to any existing account with a longer name.
 const MAX_SEGMENT_LEN: usize = 255;
 
+/// Longest permitted repository segment.
+///
+/// The repository becomes the directory `<segment>.git`, and NAME_MAX is 255
+/// bytes, so this one has to leave room for the suffix -- unlike the owner,
+/// which is its own path component with nothing appended.
+const MAX_REPO_SEGMENT_LEN: usize = 255 - ".git".len();
+
 /// True if `user_id` may act on `owner/project`, either through `users_owners`
 /// (ownership) or through `project_shares` (an accepted invite).
 ///
@@ -142,6 +149,9 @@ pub fn repo_path(base: &str, owner: &str, project: &str) -> Result<PathBuf, Stri
 
     let repo = project.strip_suffix(".git").unwrap_or(project);
     validate_segment(repo).map_err(|err| format!("project {err}"))?;
+    if repo.len() > MAX_REPO_SEGMENT_LEN {
+        return Err("project is too long for a repository directory name".to_string());
+    }
 
     let base_path = Path::new(base);
     let candidate = base_path.join(owner).join(format!("{repo}.git"));
@@ -204,6 +214,24 @@ mod tests {
     fn accepts_names_up_to_the_column_width() {
         assert!(validate_segment(&"a".repeat(255)).is_ok());
         assert!(validate_segment(&"a".repeat(256)).is_err());
+    }
+
+    #[test]
+    fn repo_segment_leaves_room_for_the_git_suffix() {
+        let base = "./git-repo";
+        // At the limit the derived `<repo>.git` still fits within NAME_MAX.
+        let at_limit = "a".repeat(MAX_REPO_SEGMENT_LEN);
+        assert!(repo_path(base, "me", &at_limit).is_ok());
+        assert!(at_limit.len() + ".git".len() <= 255);
+
+        // One over, and the directory name would exceed it.
+        let too_long = "a".repeat(MAX_REPO_SEGMENT_LEN + 1);
+        assert!(repo_path(base, "me", &too_long).is_err());
+
+        // The owner is its own component with no suffix, so it keeps the
+        // full username width.
+        let long_owner = "a".repeat(MAX_SEGMENT_LEN);
+        assert!(repo_path(base, &long_owner, "app").is_ok());
     }
 
     #[test]

@@ -21,7 +21,7 @@ const TOKEN_LENGTH: usize = 32;
 pub struct CreateProjectRequest {
     #[garde(length(min = 1), pattern(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$"))]
     pub owner: String,
-    #[garde(length(min = 1), pattern(r"^[a-z0-9_-]+$"))]
+    #[garde(length(min = 1, max = 100), pattern(r"^[a-z0-9_-]+$"))]
     pub project: String,
 }
 
