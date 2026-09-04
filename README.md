@@ -156,6 +156,11 @@ reset in this codebase. Read the dry-run output before applying: SSO users
 recover by signing in through CAS, but a password-only account caught by it has
 to be reset with direct SQL.
 
+**Known maintenance debt.** The dependency audit reports advisories that are
+accepted rather than fixed, because they are chained behind a framework upgrade.
+See [MAINTENANCE.md](MAINTENANCE.md) for the sequenced plan and
+`.cargo/audit.toml` for the per-advisory justification.
+
 **Traefik dashboard and API.** The API is bound to the Traefik container's own
 loopback (`--entrypoints.traefik.address=127.0.0.1:8080`). Publishing it on the
 host's loopback was not sufficient: a published port constrains only host
