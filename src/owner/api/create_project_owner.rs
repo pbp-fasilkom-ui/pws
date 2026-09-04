@@ -1,13 +1,32 @@
 use axum::{extract::State, response::Response, Form};
 use garde::{Unvalidated, Validate};
 use hyper::{Body, StatusCode};
-use leptos::ssr::render_to_string;
-use leptos::*;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use ulid::Ulid;
 use uuid::Uuid;
 
 use crate::{auth::Auth, startup::AppState};
+
+#[derive(Serialize, Debug)]
+struct ErrorResponse {
+    message: String,
+}
+
+/// Matches the JSON error shape every other handler returns. These paths
+/// previously rendered one-line HTML through leptos, which was the only real
+/// use of that dependency in the codebase.
+fn json_error(status: StatusCode, message: impl Into<String>) -> Response<Body> {
+    let body = serde_json::to_string(&ErrorResponse {
+        message: message.into(),
+    })
+    .unwrap();
+
+    Response::builder()
+        .status(status)
+        .header("Content-Type", "application/json")
+        .body(Body::from(body))
+        .unwrap()
+}
 
 // TODO: separate schema for create and update when needed later on
 #[derive(Deserialize, Validate, Debug)]
@@ -31,27 +50,12 @@ pub async fn post(
     Form(req): Form<Unvalidated<CreateProjectOwnerRequest>>,
 ) -> Response<Body> {
     let Some(user) = auth.current_user else {
-        return Response::builder()
-            .status(StatusCode::UNAUTHORIZED)
-            .header("Content-Type", "text/html")
-            .body(Body::from("Unauthorized"))
-            .unwrap();
+        return json_error(StatusCode::UNAUTHORIZED, "Unauthorized");
     };
 
     let data = match req.validate(&()) {
         Ok(valid) => valid.into_inner(),
-        Err(err) => {
-            let html = render_to_string(move || {
-                view! {
-                    <p> {err.to_string() } </p>
-                }
-            })
-            .into_owned();
-            return Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .body(Body::from(html))
-                .unwrap();
-        }
+        Err(err) => return json_error(StatusCode::BAD_REQUEST, err.to_string()),
     };
 
     // Check for existing project
@@ -71,17 +75,10 @@ pub async fn post(
                 data.name
             );
 
-            let html = render_to_string(move || {
-                view! {
-                    <p> Project with name {data.name} already exists </p>
-                }
-            })
-            .into_owned();
-
-            return Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .body(Body::from(html))
-                .unwrap();
+            return json_error(
+                StatusCode::BAD_REQUEST,
+                format!("An owner named {} already exists", data.name),
+            );
         }
         Err(err) => {
             tracing::error!(
@@ -89,10 +86,10 @@ pub async fn post(
                 "Can't get existing project owner: Failed to query database"
             );
 
-            return Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .body(Body::empty())
-                .unwrap();
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to query database",
+            );
         }
     };
 
@@ -105,18 +102,7 @@ pub async fn post(
                 ?err,
                 "Can't insert project owner: Failed to begin transaction"
             );
-            let html = render_to_string(move || {
-                view! {
-                    <h1> Failed to begin transaction {err.to_string()} </h1>
-                }
-            })
-            .into_owned();
-
-            return Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .header("Content-Type", "text/html")
-                .body(Body::from(html))
-                .unwrap();
+            return json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to create owner");
         }
     };
 
@@ -141,18 +127,7 @@ pub async fn post(
             );
         }
 
-        let html = render_to_string(move || {
-            view! {
-                <h1> Failed to insert project owner into database </h1>
-            }
-        })
-        .into_owned();
-
-        return Response::builder()
-            .status(StatusCode::BAD_REQUEST)
-            .header("Content-Type", "text/html")
-            .body(Body::from(html))
-            .unwrap();
+        return json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to create owner");
     }
 
     // Without this the namespace has no member, so `authz::is_owner_member`
@@ -171,16 +146,12 @@ pub async fn post(
             tracing::error!(?err, "Failed to rollback transaction");
         }
 
-        return Response::builder()
-            .status(StatusCode::INTERNAL_SERVER_ERROR)
-            .header("Content-Type", "text/html")
-            .body(Body::from("Failed to create owner"))
-            .unwrap();
+        return json_error(StatusCode::INTERNAL_SERVER_ERROR, "Failed to create owner");
     }
 
     Response::builder()
         .status(StatusCode::OK)
-        .header("Content-Type", "text/html")
+        .header("Content-Type", "application/json")
         .body(Body::empty())
         .unwrap()
 }

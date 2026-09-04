@@ -5,7 +5,6 @@ use axum::{
 };
 use garde::{Unvalidated, Validate};
 use hyper::{Body, StatusCode};
-use leptos::*;
 use serde::Deserialize;
 
 use crate::{auth::Auth, startup::AppState};

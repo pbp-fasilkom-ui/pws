@@ -76,9 +76,6 @@ impl<'a> MakeWriter<'a> for LogRecorder {
     }
 
     fn make_writer_for(&'a self, meta: &Metadata<'_>) -> Self::Writer {
-        if meta.target().starts_with("leptos") {
-            return StdioLock::Empty(self.empty);
-        }
         if meta.level() <= &Level::WARN {
             return StdioLock::Stderr(self.stderr.lock());
         }
