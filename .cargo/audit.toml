@@ -1,0 +1,63 @@
+# Dependency-advisory baseline.
+#
+# Reviewed 2026-09-04. Seven of these eight are REAL and reachable; they are
+# accepted for now, not fixed. Only `rsa` is genuinely not applicable. Green
+# here therefore means "no NEW advisory", not "no advisories" -- the same
+# baseline-freeze approach used for Clippy in src/lib.rs.
+#
+# Every entry except RUSTSEC-2023-0071 is unblocked by one migration:
+# sqlx 0.8 requires axum_session >= 0.15, which requires axum 0.8, which
+# requires hyper 1.x -- which is also what h2 and rustls 0.23 need. They move
+# together. Delete the corresponding lines as that lands; this list is meant to
+# shrink to a single entry and then to nothing.
+#
+# Re-review by 2026-12-01 even if the migration has not happened, so an
+# accepted risk cannot quietly become a permanent one.
+
+[advisories]
+ignore = [
+  # NOT APPLICABLE -- no patch exists, and the crate is not in the build graph
+  # at all: sqlx's MySQL support is disabled, so `cargo tree -e normal -i rsa`
+  # returns nothing. Nothing links or executes it.
+  "RUSTSEC-2023-0071",  # rsa 0.9.6 -- Marvin Attack (timing side-channel)
+
+  # ACCEPTED, MITIGATED -- reachable via the Postgres driver, but the flaw needs
+  # a value large enough to overflow an i32 length. The HTTP body limit is
+  # 25 MiB (configuration.yml `bodylimit`), four orders of magnitude below the
+  # ~4 GiB required, and no other path feeds attacker-sized values to the
+  # driver. Fixed by sqlx 0.8.
+  "RUSTSEC-2024-0363",  # sqlx 0.7.3 -- binary protocol misinterpretation
+
+  # ACCEPTED, LOW -- reachable through `url`, but this service makes no trust
+  # decision based on a user-supplied domain. The only externally-influenced URL
+  # is the SSO service_url, which is checked against a fixed allow-list of four
+  # values (auth::api::sso::handler::allowed_service_urls); every outbound host
+  # is hardcoded. Punycode display-spoofing has nothing to spoof here.
+  "RUSTSEC-2024-0421",  # idna 0.3.0 / 0.5.0 -- Punycode label handling
+
+  # ACCEPTED -- exercised when validating the CAS server's certificate on
+  # outbound HTTPS (rustls 0.21 via reqwest; the database connection is
+  # unencrypted, ssl=off, so sqlx never validates a certificate). Exploiting
+  # these needs an active network attacker or a hostile CA, against one fixed
+  # known host. Fixed by rustls 0.23, which requires reqwest 0.12 -- attempted
+  # and reverted, because it adds rustls 0.22 alongside sqlx's 0.21 and yields
+  # four more advisories than it removes.
+  "RUSTSEC-2026-0098",  # rustls-webpki -- URI name constraints accepted
+  "RUSTSEC-2026-0099",  # rustls-webpki -- name constraints on wrong cert type
+  "RUSTSEC-2026-0104",  # rustls-webpki -- reachable panic parsing a CRL
+
+  # ACCEPTED, LOW (upstream's own rating).
+  #
+  # Corrected after testing: the server DOES serve HTTP/2. curl with
+  # --http2-prior-knowledge against 127.0.0.1:8080 negotiates h2 and returns
+  # 200, so hyper's h2c path is live -- an earlier version of this comment
+  # claimed the frame path was unreachable, which was wrong.
+  #
+  # What actually limits it: port 8080 binds 127.0.0.1 only, so nothing outside
+  # the host reaches it directly, and Traefik speaks HTTP/1.1 to the backend.
+  # Container-to-container, only the control-plane network can reach
+  # server-pemasak:8080 -- project containers are on `pemasak` and cannot. So
+  # the exposure is a control-plane container or local access, not the internet
+  # and not a student. Fixed in h2 0.4.16, which requires hyper 1.x.
+  "RUSTSEC-2026-0258",  # h2 -- unbounded empty DATA frames
+]
