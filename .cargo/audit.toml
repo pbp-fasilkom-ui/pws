@@ -46,9 +46,18 @@ ignore = [
   "RUSTSEC-2026-0099",  # rustls-webpki -- name constraints on wrong cert type
   "RUSTSEC-2026-0104",  # rustls-webpki -- reachable panic parsing a CRL
 
-  # ACCEPTED, LOW (upstream's own rating) -- h2 is compiled into the server via
-  # hyper 0.14, but Traefik fronts it and speaks HTTP/1.1 to the backend, so the
-  # HTTP/2 frame path is not reachable from the internet. Fixed in h2 0.4.16,
-  # which requires hyper 1.x.
+  # ACCEPTED, LOW (upstream's own rating).
+  #
+  # Corrected after testing: the server DOES serve HTTP/2. curl with
+  # --http2-prior-knowledge against 127.0.0.1:8080 negotiates h2 and returns
+  # 200, so hyper's h2c path is live -- an earlier version of this comment
+  # claimed the frame path was unreachable, which was wrong.
+  #
+  # What actually limits it: port 8080 binds 127.0.0.1 only, so nothing outside
+  # the host reaches it directly, and Traefik speaks HTTP/1.1 to the backend.
+  # Container-to-container, only the control-plane network can reach
+  # server-pemasak:8080 -- project containers are on `pemasak` and cannot. So
+  # the exposure is a control-plane container or local access, not the internet
+  # and not a student. Fixed in h2 0.4.16, which requires hyper 1.x.
   "RUSTSEC-2026-0258",  # h2 -- unbounded empty DATA frames
 ]
