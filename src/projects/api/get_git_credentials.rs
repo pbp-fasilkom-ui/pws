@@ -110,7 +110,8 @@ pub async fn get(
     let git_url = format!("{protocol}://{domain}/{owner}/{project}");
 
     let json = serde_json::to_string(&GitCredentialsResponse {
-        git_username: project_record.owner.clone(),
+        // Personal credential: presented under the caller's own name.
+        git_username: user.username.clone(),
         git_url,
         project_name: project_record.project,
         owner_name: project_record.owner,
