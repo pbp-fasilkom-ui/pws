@@ -1,5 +1,5 @@
 # stage 0: chef
-FROM rust:1.72.0 AS chef
+FROM rust:1.98.0 AS chef
 WORKDIR /app
 RUN cargo install cargo-chef --version 0.1.60 --locked
 RUN apt update
