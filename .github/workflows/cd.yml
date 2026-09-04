@@ -51,6 +51,18 @@ jobs:
             /*) ;;
             *) echo "DEPLOY_PATH must be an absolute path." >&2; exit 1 ;;
           esac
+          # grep matches per LINE, so a multi-line value whose first line looks
+          # like a valid path would pass while the rest carried an injection
+          # into the ssh command below. Reject embedded newlines first --
+          # printf '%s' adds none, so wc -l counts only embedded ones.
+          for var in DEPLOY_PATH DEPLOY_HOST DEPLOY_USER; do
+            eval "value=\$$var"
+            if [ "$(printf '%s' "$value" | wc -l)" -ne 0 ]; then
+              echo "$var must be a single line." >&2
+              exit 1
+            fi
+          done
+
           printf '%s' "$DEPLOY_PATH" | grep -qE '^/[A-Za-z0-9._/-]+$' \
             || { echo "DEPLOY_PATH contains unexpected characters." >&2; exit 1; }
           printf '%s' "$DEPLOY_HOST" | grep -qE '^[A-Za-z0-9.-]+$' \

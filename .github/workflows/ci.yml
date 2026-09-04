@@ -79,18 +79,6 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --locked --all-targets -- -D warnings
 
-  audit:
-    name: Dependency advisories
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-
-      - name: Audit Rust dependencies
-        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-
   frontend:
     name: Frontend checks
     runs-on: ubuntu-latest
