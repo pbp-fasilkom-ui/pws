@@ -1,10 +1,11 @@
 use std::collections::HashSet;
 
+use axum::body::Body;
+use axum::extract::Request;
+use axum::http::StatusCode;
 use axum::{middleware::Next, response::Response};
 use axum_session::SessionStore;
-use bytes::Bytes;
-use http_body::combinators::UnsyncBoxBody;
-use hyper::{Body, Request, StatusCode};
+use axum_session_sqlx::SessionPgPool;
 use regex::Regex;
 use secrecy::{ExposeSecret, Secret};
 use serde::{Deserialize, Serialize};
@@ -31,20 +32,16 @@ pub mod api;
 
 pub type Auth = AuthSession<User, Uuid, SessionPgPool, PgPool>;
 
-pub async fn auth<B>(
-    auth: Auth,
-    request: Request<B>,
-    next: Next<B>,
-) -> Result<Response<UnsyncBoxBody<Bytes, axum::Error>>, hyper::Response<Body>> {
+pub async fn auth(auth: Auth, request: Request, next: Next) -> Response {
     if auth.current_user.is_none() {
-        return Err(Response::builder()
+        return Response::builder()
             .status(StatusCode::FOUND)
             .header("Location", "/api/login")
             .body(Body::empty())
-            .unwrap());
+            .unwrap();
     }
 
-    Ok(next.run(request).await)
+    next.run(request).await
 }
 
 pub async fn auth_layer(

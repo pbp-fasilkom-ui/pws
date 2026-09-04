@@ -3,8 +3,9 @@ use crate::{
     startup::AppState,
 };
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
+use axum::body::Body;
+use axum::http::StatusCode;
 use axum::{extract::State, response::Response, Json};
-use hyper::{Body, StatusCode};
 use secrecy::ExposeSecret;
 use serde::Deserialize;
 

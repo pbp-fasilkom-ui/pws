@@ -1,8 +1,9 @@
 use std::fmt;
 
+use axum::body::Body;
 use axum::extract::{Path, State};
+use axum::http::StatusCode;
 use axum::response::Response;
-use hyper::{Body, StatusCode};
 use serde::{Deserialize, Serialize};
 
 use crate::{auth::Auth, startup::AppState};

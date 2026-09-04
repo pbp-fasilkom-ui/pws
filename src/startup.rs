@@ -1,15 +1,17 @@
-use axum::extract::{Host, State};
+use axum::extract::State;
 use axum::middleware::Next;
 use axum::response::Redirect;
 use axum::routing::get;
 use axum::{middleware, routing, Router};
 
-use axum_session::{SessionLayer, SessionPgPool};
+use axum::body::Body;
+use axum::http::{Method, Request, Response, StatusCode, Uri};
+use axum_session::SessionLayer;
 use axum_session_auth::AuthSessionLayer;
+use axum_session_sqlx::SessionPgPool;
 use bollard::Docker;
 use bytes::Bytes;
 use http_body::combinators::UnsyncBoxBody;
-use hyper::{Body, Method, Request, Response, StatusCode, Uri};
 
 use sqlx::PgPool;
 use tokio::sync::mpsc::Sender;
@@ -32,7 +34,6 @@ pub struct AppState {
     pub git_auth: bool,
     pub sso: bool,
     pub domain: String,
-    pub client: hyper::client::Client<hyper::client::HttpConnector, hyper::Body>,
     pub pool: PgPool,
     pub build_channel: Sender<BuildQueueItem>,
     pub build_logs: BuildLogRegistry,
@@ -102,11 +103,19 @@ pub async fn run(listener: TcpListener, state: AppState, config: Settings) -> Re
 
     tracing::info!("listening on {}", addr);
 
-    axum::Server::from_tcp(listener)
-        .map_err(|err| format!("Failed to make server from tcp: {}", err))?
-        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
-        .await
-        .map_err(|err| format!("failed to start server: {}", err))
+    // axum 0.8 replaced hyper's Server with axum::serve over a tokio listener.
+    listener
+        .set_nonblocking(true)
+        .map_err(|err| format!("Failed to set non-blocking: {}", err))?;
+    let listener = tokio::net::TcpListener::from_std(listener)
+        .map_err(|err| format!("Failed to adopt listener: {}", err))?;
+
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .map_err(|err| format!("failed to start server: {}", err))
 }
 
 pub async fn health_check() -> Response<Body> {
@@ -115,204 +124,4 @@ pub async fn health_check() -> Response<Body> {
         .header("content-type", "text/plain")
         .body(Body::from("OK"))
         .unwrap()
-}
-
-pub async fn fallback(
-    State(AppState {
-        pool,
-        client,
-        domain,
-        ..
-    }): State<AppState>,
-    Host(hostname): Host,
-    uri: axum::http::Uri,
-    mut req: Request<Body>,
-) -> Response<Body> {
-    let subdomain = hostname
-        .trim_end_matches(domain.as_str())
-        .trim_end_matches('.');
-
-    if subdomain.is_empty() {
-        return Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(Body::empty())
-            .unwrap();
-    }
-
-    tracing::debug!(hostname, "hostname {}", hostname);
-    tracing::debug!(domain, "domain {}", domain);
-    tracing::debug!(?subdomain, "subdomain {} is accessed", subdomain);
-
-    let ip_address = match Docker::connect_with_local_defaults() {
-        Ok(docker) => match docker.inspect_container(subdomain, None).await {
-            Ok(res) => {
-                let network = match res.network_settings {
-                    Some(network) => network,
-                    None => {
-                        return Response::builder()
-                            .status(StatusCode::BAD_REQUEST)
-                            .body(Body::empty())
-                            .unwrap();
-                    }
-                };
-
-                let networks = match network.networks {
-                    Some(networks) => networks,
-                    None => {
-                        return Response::builder()
-                            .status(StatusCode::BAD_REQUEST)
-                            .body(Body::empty())
-                            .unwrap();
-                    }
-                };
-
-                let project_network = networks.get(&format!("{}-network", subdomain));
-                if let Some(project_network) = project_network {
-                    match &project_network.ip_address {
-                        Some(ip_address) => Ok(ip_address.clone()),
-                        None => {
-                            return Response::builder()
-                                .status(StatusCode::BAD_REQUEST)
-                                .body(Body::empty())
-                                .unwrap();
-                        }
-                    }
-                } else {
-                    return Response::builder()
-                        .status(StatusCode::BAD_REQUEST)
-                        .body(Body::empty())
-                        .unwrap();
-                }
-            }
-            Err(_) => Err(Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .body(Body::empty())
-                .unwrap()),
-        },
-        Err(_) => Err(Response::builder()
-            .status(StatusCode::BAD_REQUEST)
-            .body(Body::empty())
-            .unwrap()),
-    };
-
-    if let Ok(ip_address) = ip_address {
-        let uri = format!("http://{}:{}{}", ip_address, 80, uri);
-        *req.uri_mut() = Uri::try_from(uri).unwrap();
-        match client.request(req).await {
-            Ok(res) => res,
-            Err(err) => {
-                tracing::error!(?err, "Can't access container: Failed request to container");
-
-                return Response::builder()
-                    .status(StatusCode::BAD_REQUEST)
-                    .body(Body::empty())
-                    .unwrap();
-            }
-        }
-    } else {
-        Response::builder()
-            .status(StatusCode::BAD_REQUEST)
-            .body(Body::empty())
-            .unwrap()
-    }
-}
-
-pub async fn fallback_middleware(
-    State(AppState {
-        pool,
-        client,
-        domain,
-        ..
-    }): State<AppState>,
-    Host(hostname): Host,
-    uri: axum::http::Uri,
-    mut req: Request<Body>,
-    next: Next<Body>,
-) -> Result<Response<UnsyncBoxBody<Bytes, axum::Error>>, Response<Body>> {
-    let subdomain = hostname
-        .trim_end_matches(domain.as_str())
-        .trim_end_matches('.');
-
-    tracing::debug!(hostname, "hostname {}", hostname);
-    tracing::debug!(domain, "domain {}", domain);
-    tracing::debug!(?subdomain, "subdomain {} is accessed", subdomain);
-
-    if subdomain.is_empty() {
-        return Ok(next.run(req).await);
-    }
-
-    tracing::debug!(?subdomain, "subdomain {} is accessed", subdomain);
-
-    let ip_address = match Docker::connect_with_local_defaults() {
-        Ok(docker) => match docker.inspect_container(subdomain, None).await {
-            Ok(res) => {
-                let network = match res.network_settings {
-                    Some(network) => network,
-                    None => {
-                        return Err(Response::builder()
-                            .status(StatusCode::BAD_REQUEST)
-                            .body(Body::empty())
-                            .unwrap());
-                    }
-                };
-
-                let networks = match network.networks {
-                    Some(networks) => networks,
-                    None => {
-                        return Err(Response::builder()
-                            .status(StatusCode::BAD_REQUEST)
-                            .body(Body::empty())
-                            .unwrap());
-                    }
-                };
-
-                let project_network = networks.get(&format!("{}-network", subdomain));
-                if let Some(project_network) = project_network {
-                    match &project_network.ip_address {
-                        Some(ip_address) => Ok(ip_address.clone()),
-                        None => {
-                            return Err(Response::builder()
-                                .status(StatusCode::BAD_REQUEST)
-                                .body(Body::empty())
-                                .unwrap());
-                        }
-                    }
-                } else {
-                    return Err(Response::builder()
-                        .status(StatusCode::BAD_REQUEST)
-                        .body(Body::empty())
-                        .unwrap());
-                }
-            }
-            Err(_) => Err(Response::builder()
-                .status(StatusCode::BAD_REQUEST)
-                .body(Body::empty())
-                .unwrap()),
-        },
-        Err(_) => Err(Response::builder()
-            .status(StatusCode::BAD_REQUEST)
-            .body(Body::empty())
-            .unwrap()),
-    };
-
-    if let Ok(ip_address) = ip_address {
-        let uri = format!("http://{}:{}{}", ip_address, 80, uri);
-        *req.uri_mut() = Uri::try_from(uri).unwrap();
-        match client.request(req).await {
-            Ok(res) => Err(res),
-            Err(err) => {
-                tracing::error!(?err, "Can't access container: Failed request to container");
-
-                Err(Response::builder()
-                    .status(StatusCode::BAD_REQUEST)
-                    .body(Body::empty())
-                    .unwrap())
-            }
-        }
-    } else {
-        Err(Response::builder()
-            .status(StatusCode::BAD_REQUEST)
-            .body(Body::empty())
-            .unwrap())
-    }
 }

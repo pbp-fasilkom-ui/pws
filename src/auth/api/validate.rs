@@ -2,8 +2,9 @@ use crate::{
     auth::{Auth, ErrorResponse, RegisterUserErrorType, User},
     startup::AppState,
 };
+use axum::body::Body;
+use axum::http::StatusCode;
 use axum::{extract::State, response::Response};
-use hyper::{Body, StatusCode};
 use serde::Serialize;
 use uuid::Uuid;
 

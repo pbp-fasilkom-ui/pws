@@ -1,9 +1,10 @@
+use axum::body::Body;
+use axum::http::StatusCode;
 use axum::{
     extract::{Path, State},
     response::Response,
 };
 use git2::{BranchType, Repository};
-use hyper::{Body, StatusCode};
 use serde::Serialize;
 
 use crate::{auth::Auth, startup::AppState};

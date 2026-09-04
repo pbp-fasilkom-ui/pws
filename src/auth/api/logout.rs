@@ -1,6 +1,7 @@
 use crate::auth::Auth;
+use axum::body::Body;
+use axum::http::StatusCode;
 use axum::response::Response;
-use hyper::{Body, StatusCode};
 
 #[tracing::instrument(skip(auth))]
 pub async fn logout_user(auth: Auth) -> Response<Body> {

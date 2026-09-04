@@ -1,11 +1,12 @@
 use crate::auth::Auth;
 use crate::authz;
 use crate::startup::AppState;
+use axum::body::Body;
 use axum::extract::{Path, State};
+use axum::http::StatusCode;
 use axum::response::Response;
 use bollard::container::{StartContainerOptions, StopContainerOptions};
 use bollard::Docker;
-use hyper::{Body, StatusCode};
 use serde::Serialize;
 
 #[derive(Serialize)]

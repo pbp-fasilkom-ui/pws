@@ -1,5 +1,6 @@
 use std::{collections::VecDeque, convert::Infallible, sync::Arc, time::Duration};
 
+use axum::http::StatusCode;
 use axum::{
     extract::{Path, State},
     response::{
@@ -8,7 +9,6 @@ use axum::{
     },
 };
 use futures::stream;
-use hyper::StatusCode;
 use serde::Serialize;
 use tokio::sync::broadcast;
 use uuid::Uuid;

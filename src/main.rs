@@ -1,4 +1,3 @@
-use hyper::{client::HttpConnector, Body};
 use pemasak_infra::{
     build_logs, configuration,
     queue::{build_queue_handler, BuildQueue},
@@ -7,8 +6,6 @@ use pemasak_infra::{
 use sqlx::postgres::PgPoolOptions;
 use std::{net::TcpListener, path::Path, process};
 use tokio::fs::OpenOptions;
-
-type Client = hyper::client::Client<HttpConnector, Body>;
 
 #[tokio::main]
 async fn main() {
@@ -185,7 +182,6 @@ async fn main() {
         base: config.git.base.clone(),
         git_auth: config.git.auth,
         sso: config.auth.sso,
-        client: Client::new(),
         domain: config.domain(),
         build_channel,
         build_logs,

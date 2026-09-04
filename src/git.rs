@@ -6,6 +6,8 @@ use std::{
     process::{Output, Stdio},
 };
 
+use axum::body::Body;
+use axum::extract::Request;
 use axum::{
     extract::{DefaultBodyLimit, Path, Query, State},
     middleware::{self, Next},
@@ -14,10 +16,7 @@ use axum::{
     Router,
 };
 use axum_extra::routing::RouterExt;
-use http_body::combinators::UnsyncBoxBody;
-use hyper::{
-    body::Bytes, http::response::Builder as ResponseBuilder, Body, HeaderMap, Request, StatusCode,
-};
+use hyper::{body::Bytes, http::response::Builder as ResponseBuilder, HeaderMap, StatusCode};
 
 use anyhow::Result;
 use serde::Deserialize;
@@ -29,13 +28,13 @@ use crate::{configuration::Settings, queue::BuildQueueItem, startup::AppState};
 use data_encoding::BASE64;
 use uuid::Uuid;
 
-async fn basic_auth<B>(
+async fn basic_auth(
     State(AppState { pool, git_auth, .. }): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
     headers: HeaderMap,
-    request: Request<B>,
-    next: Next<B>,
-) -> Result<Response<UnsyncBoxBody<Bytes, axum::Error>>, hyper::Response<Body>> {
+    request: Request,
+    next: Next,
+) -> Result<Response, axum::http::Response<Body>> {
     // Validate before the git_auth bypass below, so unauthenticated
     // deployments are covered too. Several handlers downstream build
     // filesystem paths by formatting these segments directly.
@@ -153,13 +152,13 @@ async fn basic_auth<B>(
     }
 }
 
-pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
+pub fn router(state: AppState, config: &Settings) -> Router<AppState> {
     Router::new()
-        .route_with_tsr("/:owner/:repo/git-upload-pack", post(upload_pack_rpc))
-        .route_with_tsr("/:owner/:repo/git-receive-pack", post(receive_pack_rpc))
-        .route_with_tsr("/:owner/:repo/info/refs", get(get_info_refs))
+        .route_with_tsr("/{owner}/{repo}/git-upload-pack", post(upload_pack_rpc))
+        .route_with_tsr("/{owner}/{repo}/git-receive-pack", post(receive_pack_rpc))
+        .route_with_tsr("/{owner}/{repo}/info/refs", get(get_info_refs))
         .route_with_tsr(
-            "/:owner/:repo/HEAD",
+            "/{owner}/{repo}/HEAD",
             get(
                 |Path((owner, repo)): Path<(String, String)>,
                  State(AppState { base, .. }): State<AppState>| async move {
@@ -168,7 +167,7 @@ pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
             ),
         )
         .route_with_tsr(
-            "/:owner/:repo/objects/info/alternates",
+            "/{owner}/{repo}/objects/info/alternates",
             get(
                 |Path((owner, repo)): Path<(String, String)>,
                  State(AppState { base, .. }): State<AppState>| async move {
@@ -177,7 +176,7 @@ pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
             ),
         )
         .route_with_tsr(
-            "/:owner/:repo/objects/info/http-alternates",
+            "/{owner}/{repo}/objects/info/http-alternates",
             get(
                 |Path((owner, repo)): Path<(String, String)>,
                  State(AppState { base, .. }): State<AppState>| async move {
@@ -185,9 +184,9 @@ pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
                 },
             ),
         )
-        .route_with_tsr("/:owner/:repo/objects/info/packs", get(get_info_packs))
+        .route_with_tsr("/{owner}/{repo}/objects/info/packs", get(get_info_packs))
         .route_with_tsr(
-            "/:owner/:repo/objects/info/:file",
+            "/{owner}/{repo}/objects/info/{file}",
             get(
                 |Path((owner, repo, head, file)): Path<(String, String, String, String)>,
                  State(AppState { base, .. }): State<AppState>| async move {
@@ -195,9 +194,12 @@ pub fn router(state: AppState, config: &Settings) -> Router<AppState, Body> {
                 },
             ),
         )
-        .route_with_tsr("/:owner/:repo/objects/:head/:hash", get(get_loose_object))
         .route_with_tsr(
-            "/:owner/:repo/objects/packs/:file",
+            "/{owner}/{repo}/objects/{head}/{hash}",
+            get(get_loose_object),
+        )
+        .route_with_tsr(
+            "/{owner}/{repo}/objects/packs/{file}",
             get(get_pack_or_idx_file),
         )
         .route_layer(middleware::from_fn_with_state(state, basic_auth))
