@@ -59,7 +59,15 @@ services:
     # On both: pemasak to reach the project containers it manages,
     # pemasak-control to reach the database.
     networks:
-      - pemasak
+      # Deliberately NOT on `pemasak`. Student containers live there, and
+      # container ports are reachable across a shared docker network regardless
+      # of any `ports:` mapping -- so a deployed student app could reach
+      # server-pemasak:8080 directly, bypassing Traefik entirely. That let it
+      # forge X-Forwarded-For outright (the rate limiter's key), flood the
+      # limiter's table, and reach the API unmediated. Nothing here needs that
+      # network: containers are managed through the Docker socket, and the
+      # proxy fallback that would have used domains.docker_ip is disabled.
+      # Being single-homed also removes the Traefik multi-network ambiguity.
       - pemasak-control
     labels:
       - "traefik.enable=true"
