@@ -27,6 +27,7 @@ use tower_http::limit::RequestBodyLimitLayer;
 use crate::{configuration::Settings, queue::BuildQueueItem, startup::AppState};
 
 use data_encoding::BASE64;
+use uuid::Uuid;
 
 async fn basic_auth<B>(
     State(AppState { pool, git_auth, .. }): State<AppState>,
@@ -91,29 +92,27 @@ async fn basic_auth<B>(
             let owner_name = parts.next().unwrap_or("");
             let token = parts.next().unwrap_or("");
 
-            // The credentials authenticate `owner_name`, but the repository
-            // being acted on belongs to `owner` from the URL. These were never
-            // compared, so valid credentials for your own project authorized
-            // access to anyone else's project of the same name.
-            if owner_name != owner {
-                return Err(auth_failed);
-            }
-
-            let tokens = match sqlx::query!(
-                r#"SELECT projects.name AS project_name, api_token.token AS token, project_owners.name AS project_owner
-                    FROM project_owners
-                    JOIN projects ON project_owners.id = projects.owner_id
-                    JOIN api_token ON projects.id = api_token.project_id
-                    WHERE project_owners.name = $1
-                "#,
-                owner_name
+            // Candidate credentials for exactly the repository named in the
+            // URL. Scoping the lookup this way is what stops a token for one
+            // project authorizing another -- previously the URL owner was
+            // discarded entirely and only the credential's own owner was
+            // consulted.
+            //
+            // Two shapes are accepted. A row with user_id NULL is the
+            // pre-existing project-wide token, presented under the owner
+            // namespace, which keeps already configured git remotes working. A
+            // row with a user_id is that user's own credential, presented under
+            // their username.
+            let candidates = match crate::tokens::candidate_credentials(
+                &pool, &owner, &repo, owner_name,
             )
-            .fetch_all(&pool)
             .await
             {
-                Ok(tokens) => tokens,
-                Err(sqlx::Error::RowNotFound) => return Err(auth_failed),
-                Err(_) => return Err(auth_err),
+                Ok(rows) => rows,
+                Err(err) => {
+                    tracing::error!(?err, "Git auth: failed to load credentials");
+                    return Err(auth_err);
+                }
             };
 
             // Nothing here may log the presented or stored token. These lines
@@ -121,12 +120,29 @@ async fn basic_auth<B>(
             // stdout is scraped into Loki, which Grafana can query.
             tracing::debug!(%owner_name, %repo, "Git auth attempt");
 
-            // Check the cheap string comparisons first so that at most one
-            // Argon2 verification runs per request.
-            let authenticated = tokens
-                .iter()
-                .filter(|rec| rec.project_name == repo && rec.project_owner == owner_name)
-                .any(|rec| crate::tokens::verify_token(token, &rec.token));
+            let mut authenticated = false;
+            for (stored, user_id) in &candidates {
+                if !crate::tokens::verify_token(token, stored) {
+                    continue;
+                }
+
+                // A personal token is only good while its owner still has
+                // access; revoking a collaborator must revoke their push
+                // rights without touching anyone else's credential.
+                if let Some(user_id) = user_id {
+                    match crate::authz::has_project_access(&pool, &owner, &repo, *user_id).await {
+                        Ok(true) => {}
+                        Ok(false) => continue,
+                        Err(err) => {
+                            tracing::error!(?err, "Git auth: failed to check project access");
+                            return Err(auth_err);
+                        }
+                    }
+                }
+
+                authenticated = true;
+                break;
+            }
 
             if !authenticated {
                 return Err(auth_failed);

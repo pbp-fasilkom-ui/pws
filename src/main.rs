@@ -74,6 +74,32 @@ async fn main() {
         }
     }
 
+    // Per-user tokens require api_token.user_id, added by migration.sql. Without
+    // it the credential lookup errors on every git request and basic_auth turns
+    // that into a 401 -- so every push fails while the server still boots, still
+    // answers /health with 200, and the deploy still reports success. Refuse to
+    // start instead, so the health check fails and the deploy rolls back.
+    match sqlx::query_scalar::<_, i64>(
+        r#"SELECT count(*) FROM information_schema.columns
+           WHERE table_name = 'api_token' AND column_name = 'user_id'"#,
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(1..) => {}
+        Ok(_) => {
+            tracing::error!(
+                "Refusing to start: api_token.user_id is missing, so every git push would \
+                 fail with a 401. Apply migration.sql before deploying this version."
+            );
+            process::exit(1);
+        }
+        Err(err) => {
+            tracing::error!(?err, "Failed to check the api_token schema");
+            process::exit(1);
+        }
+    }
+
     // Argon2 rows are deliberately excluded from the gate above. They came from
     // an earlier revision of this branch and cannot be converted -- the
     // plaintext is unrecoverable -- so the owner has to regenerate through the

@@ -14,7 +14,9 @@
 //! input is already high-entropy and unique, so precomputation is not possible.
 
 use sha2::{Digest, Sha256};
+use sqlx::PgPool;
 use subtle::ConstantTimeEq;
+use uuid::Uuid;
 
 /// Prefix marking a stored value as a SHA-256 token digest.
 const PREFIX: &str = "sha256:";
@@ -61,6 +63,43 @@ fn hex(bytes: &[u8]) -> String {
         out.push_str(&format!("{byte:02x}"));
     }
     out
+}
+
+/// Credentials that could authenticate `basic_username` for `owner/repo`.
+///
+/// Two shapes are accepted. A row with `user_id` NULL is the pre-existing
+/// project-wide token, presented under the owner namespace, which keeps git
+/// remotes configured before per-user tokens working. A row with a `user_id` is
+/// that user's own credential, presented under their username.
+///
+/// Scoped to exactly the repository named in the URL: that is what stops a
+/// token for one project authorizing another.
+pub async fn candidate_credentials(
+    pool: &PgPool,
+    owner: &str,
+    repo: &str,
+    basic_username: &str,
+) -> Result<Vec<(String, Option<Uuid>)>, sqlx::Error> {
+    sqlx::query_as::<_, (String, Option<Uuid>)>(
+        r#"SELECT api_token.token, api_token.user_id
+           FROM api_token
+           JOIN projects ON api_token.project_id = projects.id
+           JOIN project_owners ON projects.owner_id = project_owners.id
+           LEFT JOIN users ON api_token.user_id = users.id
+           WHERE project_owners.name = $1
+             AND projects.name = $2
+             AND projects.deleted_at IS NULL
+             AND (
+                   (api_token.user_id IS NULL AND $3 = project_owners.name)
+                OR users.username = $3
+                 )
+        "#,
+    )
+    .bind(owner)
+    .bind(repo)
+    .bind(basic_username)
+    .fetch_all(pool)
+    .await
 }
 
 #[cfg(test)]
