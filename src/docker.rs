@@ -216,7 +216,7 @@ pub async fn build_docker(
 
             // Build using our generated Dockerfile
             let mut cmd = Command::new("docker");
-            cmd.args(&[
+            cmd.args([
                 "build",
                 &format!("--cpu-period={}", config.container_cpu_period()),
                 &format!("--cpu-quota={}", config.container_cpu_quota()),
