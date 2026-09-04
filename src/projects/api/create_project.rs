@@ -116,6 +116,24 @@ pub async fn post(
         }
     }
 
+    // Refuse a name that would resolve to a platform container before the
+    // project row exists. Without this the name is only rejected later, by the
+    // handlers that consume the container -- so the project is created,
+    // deployable, and simultaneously undeletable.
+    if let Err(err) = authz::container_name(&owner, &project) {
+        tracing::warn!(%owner, %project, %err, "Rejected reserved project name");
+        let json = serde_json::to_string(&ErrorResponse {
+            message: "Invalid project".to_string(),
+        })
+        .unwrap();
+
+        return Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .header("Content-Type", "application/json")
+            .body(Body::from(json))
+            .unwrap();
+    }
+
     // Validated and contained, rather than formatted from request data.
     let path = match authz::repo_path(&base, &owner, &project) {
         Ok(path) => path,

@@ -386,7 +386,17 @@ pub async fn receive_pack_rpc(
         return res;
     };
 
-    let container_name = format!("{owner}-{}", repo.trim_end_matches(".git")).replace('.', "-");
+    // Derived through the shared helper so the reserved-name guard applies.
+    // Hand-rolling this here meant a project called e.g. `server/pemasak`
+    // resolved to a platform container, and the build path stops and removes any
+    // container matching the name before starting its own in place.
+    let container_name = match crate::authz::container_name(&owner, &repo) {
+        Ok(name) => name,
+        Err(err) => {
+            tracing::error!(%owner, %repo, %err, "Refusing to build a reserved container name");
+            return res;
+        }
+    };
 
     let (container_src, head_commit_id) =
         match prepare_build_source(&base, &owner, &repo, &deploy_branch, None) {

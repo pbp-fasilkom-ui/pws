@@ -94,6 +94,17 @@ pub async fn post(
     // Built from validated segments and checked to stay under `base`. The old
     // format! took the URL parameters verbatim, so a percent-encoded `../` in
     // `project` reached remove_dir_all below and deleted another user's repo.
+    // Resolved before anything destructive runs. This check used to sit after
+    // the repository had already been removed, so a rejected name lost its repo
+    // and then aborted, leaving the database row and the container behind.
+    let container_name = match authz::container_name(&owner, &project) {
+        Ok(name) => name,
+        Err(err) => {
+            tracing::warn!(%owner, %project, %err, "Rejected project deletion target");
+            return deny(StatusCode::BAD_REQUEST, "Invalid project");
+        }
+    };
+
     let path = match authz::repo_path(&base, &owner, &project) {
         Ok(path) => path,
         Err(err) => {
@@ -173,14 +184,6 @@ pub async fn post(
                 status.insert("repo", "failed to delete: repo error");
             }
         },
-    };
-
-    let container_name = match authz::container_name(&owner, &project) {
-        Ok(name) => name,
-        Err(err) => {
-            tracing::warn!(%owner, %project, %err, "Rejected project deletion target");
-            return deny(StatusCode::BAD_REQUEST, "Invalid project");
-        }
     };
 
     let docker = match Docker::connect_with_local_defaults() {
