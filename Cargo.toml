@@ -37,7 +37,6 @@ git2 = "0.18.1"
 http-body = "0.4.5"
 hyper = { version = "0.14.27", features = ["server", "full"] }
 lazy_static = "1.4.0"
-leptos = { version = "0.5.1", features = ["ssr", "experimental-islands"] }
 password-hash = "0.5.0"
 procfile = { version = "0.2.1", default-features = false, features = ["serde"] }
 quick-xml = { version = "0.41", features = ["serialize"] }
