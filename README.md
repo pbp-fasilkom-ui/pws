@@ -156,6 +156,25 @@ reset in this codebase. Read the dry-run output before applying: SSO users
 recover by signing in through CAS, but a password-only account caught by it has
 to be reset with direct SQL.
 
+**Git push credentials are per user.** `api_token` used to hold one row per
+project, so every collaborator shared a single credential: regenerating it
+locked out everyone else, and a collaborator could only obtain a working
+credential by rotating the owner's. Each user now has their own token per
+project, presented under their own username:
+
+```
+git remote add pws https://<your-username>@<domain>/<owner>/<project>
+```
+
+Rotating yours affects nobody else, and a personal token stops working as soon
+as that user loses access to the project -- revoking a collaborator no longer
+requires rotating anything.
+
+Remotes configured before this change keep working: the pre-existing
+project-wide token is kept as a row with a NULL `user_id` and still
+authenticates under the owner namespace. Apply `migration.sql` to add the
+column and its two partial unique indexes.
+
 **Traefik dashboard and API.** The API is bound to the Traefik container's own
 loopback (`--entrypoints.traefik.address=127.0.0.1:8080`). Publishing it on the
 host's loopback was not sufficient: a published port constrains only host

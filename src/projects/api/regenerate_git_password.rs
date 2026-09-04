@@ -11,6 +11,7 @@ use rand::{Rng, SeedableRng};
 
 use crate::{auth::Auth, startup::AppState};
 use sqlx::Row;
+use ulid::Ulid;
 use uuid::Uuid;
 
 const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -112,11 +113,23 @@ pub async fn post(
     // not recoverable afterwards -- get_git_credentials never returned it.
     let password_hash = crate::tokens::hash_token(&new_password);
 
-    match sqlx::query("UPDATE api_token SET token = $1, updated_at = now() WHERE project_id = $2")
-        .bind(&password_hash)
-        .bind(project_id)
-        .execute(&pool)
-        .await
+    // Upsert the CALLER's own credential. Previously this rotated the single
+    // project-wide token, so any collaborator could invalidate the owner's
+    // credential -- and a collaborator had no way to obtain one without doing
+    // exactly that. Rotating your own token now affects nobody else, which is
+    // what makes member-or-share access to this endpoint correct.
+    match sqlx::query(
+        r#"INSERT INTO api_token (id, project_id, user_id, token)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (project_id, user_id) WHERE user_id IS NOT NULL
+           DO UPDATE SET token = EXCLUDED.token, updated_at = now()"#,
+    )
+    .bind(Uuid::from(Ulid::new()))
+    .bind(project_id)
+    .bind(user.id)
+    .bind(&password_hash)
+    .execute(&pool)
+    .await
     {
         Ok(_) => {}
         Err(err) => {
@@ -143,7 +156,7 @@ pub async fn post(
     let git_url = format!("{protocol}://{domain}/{owner}/{project}");
 
     let json = serde_json::to_string(&RegeneratePasswordResponse {
-        git_username: owner,
+        git_username: user.username.clone(),
         git_password: new_password,
         git_url,
         message: "Password regenerated successfully. Please save this password as it won't be shown again.".to_string(),

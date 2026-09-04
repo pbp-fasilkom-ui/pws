@@ -31,3 +31,20 @@ DELETE FROM project_owners a
     AND NOT EXISTS (SELECT 1 FROM users_owners WHERE users_owners.owner_id = a.id);
 
 CREATE UNIQUE INDEX IF NOT EXISTS project_owners_name_key ON project_owners (name);
+
+-- Migration: per-user git push tokens.
+-- api_token held exactly one row per project, so every collaborator shared one
+-- credential: regenerating it locked out everyone else, and there was no way to
+-- give a collaborator a credential without rotating the owner's.
+-- user_id NULL marks the pre-existing project-wide token, which keeps already
+-- configured git remotes working; new tokens are always per user.
+ALTER TABLE api_token
+  ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE CASCADE;
+
+-- At most one legacy project-wide token per project...
+CREATE UNIQUE INDEX IF NOT EXISTS api_token_project_legacy_key
+  ON api_token (project_id) WHERE user_id IS NULL;
+
+-- ...and at most one token per (project, user).
+CREATE UNIQUE INDEX IF NOT EXISTS api_token_project_user_key
+  ON api_token (project_id, user_id) WHERE user_id IS NOT NULL;
