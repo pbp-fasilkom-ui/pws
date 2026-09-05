@@ -147,7 +147,7 @@ impl Settings {
                 SocketAddr::V4(_) => self.application.ipv6 as usize,
                 SocketAddr::V6(_) => self.application.ipv6 as usize ^ 1,
             })
-            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "invalid address"))
+            .ok_or_else(|| io::Error::other("invalid address"))
     }
 
     pub fn domain(&self) -> String {
@@ -167,7 +167,7 @@ impl Settings {
 
     pub fn session_config(&self) -> SessionConfig {
         let key = match self.auth.key.as_deref() {
-            Some(key) if key.as_bytes().len() >= 64 => Key::from(key.as_bytes()),
+            Some(key) if key.len() >= 64 => Key::from(key.as_bytes()),
             Some(_) => {
                 tracing::warn!(
                     "auth.key is shorter than 64 bytes; generating a random key instead"

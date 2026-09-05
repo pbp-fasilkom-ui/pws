@@ -145,7 +145,7 @@ pub async fn post(
         "#,
     )
     .bind(&envs_json)
-    .bind(&project_id)
+    .bind(project_id)
     .execute(&pool)
     .await
     {

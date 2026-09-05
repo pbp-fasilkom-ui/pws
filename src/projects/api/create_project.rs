@@ -346,12 +346,15 @@ pub async fn post(
     // is not recoverable afterwards.
     let token_hash = crate::tokens::hash_token(&token);
 
-    if let Err(err) = sqlx::query!(
-        "INSERT INTO api_token (id, project_id, token) VALUES ($1, $2, $3)",
-        Uuid::from(Ulid::new()),
-        project_id,
-        token_hash,
+    // Issued to the creator, not to the project: a collaborator gets their own
+    // credential later rather than sharing this one.
+    if let Err(err) = sqlx::query(
+        "INSERT INTO api_token (id, project_id, user_id, token) VALUES ($1, $2, $3, $4)",
     )
+    .bind(Uuid::from(Ulid::new()))
+    .bind(project_id)
+    .bind(current_user.id)
+    .bind(&token_hash)
     .execute(&mut *tx)
     .await
     {
@@ -397,7 +400,10 @@ pub async fn post(
         owner_name: owner.clone(),
         project_name: project.clone(),
         domain: format!("{protocol}://{domain}/{owner}/{project}"),
-        git_username: owner.clone(),
+        // The credential is personal, so it is presented under the user's own
+        // name. The owner namespace still authenticates the pre-existing
+        // project-wide token for remotes configured before this change.
+        git_username: username,
         git_password: token,
     })
     .unwrap();
