@@ -5,10 +5,13 @@ use crate::{configuration::Settings, dockerfile_templates::DjangoDockerfile, get
 use anyhow::Result;
 use bollard::network::DisconnectNetworkOptions;
 use bollard::{
-    container::{Config, CreateContainerOptions, ListContainersOptions, StartContainerOptions},
+    container::{
+        Config, CreateContainerOptions, InspectContainerOptions, ListContainersOptions,
+        StartContainerOptions,
+    },
     image::{ListImagesOptions, TagImageOptions},
-    network::{ConnectNetworkOptions, InspectNetworkOptions, ListNetworksOptions},
-    service::{HostConfig, NetworkContainer, RestartPolicy, RestartPolicyNameEnum},
+    network::{ConnectNetworkOptions, ListNetworksOptions},
+    service::{HostConfig, RestartPolicy, RestartPolicyNameEnum},
     Docker,
 };
 use serde_json;
@@ -498,35 +501,49 @@ pub async fn build_docker(
             err
         })?;
 
-    //inspect network
-    let network_inspect = docker
-        .inspect_network(
-            &network.id.unwrap(),
-            Some(InspectNetworkOptions::<&str> {
-                verbose: true,
-                ..Default::default()
-            }),
-        )
+    // Read the address from the container rather than from the network.
+    //
+    // inspect_network's container map is populated asynchronously, so a
+    // container that has only just started is frequently absent from it. The
+    // previous lookup ended in `.get(&res.id).unwrap()`, which turned that
+    // ordinary race into a panic -- and the panic landed after the container
+    // was already created, connected and started, but before the
+    // disconnect_network("bridge") below. The container was left attached to
+    // both `bridge` and the project network, which Traefik cannot disambiguate,
+    // so the deployment was unreachable even though the build had produced a
+    // working container and the container was running. It accounted for roughly
+    // one build in eight.
+    //
+    // inspect_container reports the container's own network settings, which are
+    // assigned when it is created, so there is no window in which they are
+    // missing.
+    let inspect = docker
+        .inspect_container(&res.id, None::<InspectContainerOptions>)
         .await
         .map_err(|err| {
-            tracing::error!("Failed to inspect network: {}", err);
+            tracing::error!("Failed to inspect container: {}", err);
             err
         })?;
 
-    let network_container = network_inspect
-        .containers
-        .unwrap_or_default()
-        .get(&res.id)
-        .unwrap()
-        .clone();
+    let endpoint = inspect
+        .network_settings
+        .and_then(|settings| settings.networks)
+        .and_then(|mut networks| networks.remove(&network_name))
+        .ok_or_else(|| {
+            tracing::error!(
+                "Container {} is not attached to network {}",
+                container_name,
+                network_name
+            );
+            anyhow::anyhow!(
+                "Container {} is not attached to network {}",
+                container_name,
+                network_name
+            )
+        })?;
 
-    // TODO: this network if for one block. We need to makesure that we can get the right ip
-    // attached to the container
-    let NetworkContainer {
-        ipv4_address,
-        ipv6_address,
-        ..
-    } = network_container;
+    let ipv4_address = endpoint.ip_address;
+    let ipv6_address = endpoint.global_ipv6_address;
 
     tracing::info!(ipv4_address = ?ipv4_address, ipv6_address = ?ipv6_address, "Container {} ip addresses", container_name);
 
