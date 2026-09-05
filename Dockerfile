@@ -1,5 +1,11 @@
 # stage 0: chef
-FROM rust:1.98.0 AS chef
+# Pinned to bookworm (glibc 2.36) rather than the floating `rust:1.98.0` tag,
+# which now resolves to trixie (glibc 2.41). The binary is linked against the
+# builder's glibc and must load on the runtime stage below: an unpinned tag
+# silently moves that requirement, which is exactly how the server came to
+# reference GLIBC_2.39 and fail to start on an ubuntu:22.04 runtime (2.35).
+# Keep this distro no newer than the runtime stage's.
+FROM rust:1.98.0-bookworm AS chef
 WORKDIR /app
 RUN cargo install cargo-chef --version 0.1.60 --locked
 RUN apt update
@@ -27,7 +33,12 @@ RUN cargo build --release
 
 # stage 4: run
 # FROM gcr.io/distroless/cc-debian11
-FROM ubuntu:22.04
+# 24.04 provides glibc 2.39, comfortably above the bookworm builder's 2.36.
+# 22.04 (2.35) is too old: it cannot load a binary built on any current Rust
+# image. If you change either base, check that the runtime's glibc is >= the
+# builder's -- nothing in the build fails when it is not, the container just
+# exits at startup and the deploy rolls back.
+FROM ubuntu:24.04
 WORKDIR /app
 COPY --from=builder /app/target/release/pemasak-infra /app
 # Maintenance tasks. They need the database, which is reachable only from the
@@ -43,4 +54,18 @@ RUN echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/d
 RUN apt update
 RUN apt-cache policy docker-ce
 RUN apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+# Fail the build here rather than at deploy time. A binary built against a
+# newer glibc than this stage provides still builds, still copies in, and only
+# dies when the container starts -- which surfaces as a failed health check and
+# a production rollback. `ldd` reports the mismatch on stdout and exits 0, so
+# the exit code cannot be used; grep for the message instead. This also catches
+# an ordinary missing shared library.
+RUN set -e; for b in pemasak-infra migrate_git_tokens invalidate_weak_passwords; do \
+      if ldd "/app/$b" 2>&1 | grep -q "not found"; then \
+        echo "ERROR: /app/$b has unresolved libraries on this runtime:" >&2; \
+        ldd "/app/$b" >&2; \
+        exit 1; \
+      fi; \
+    done
+
 CMD ["./pemasak-infra"]
