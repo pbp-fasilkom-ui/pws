@@ -163,12 +163,9 @@ fn password_check(value: &Secret<String>, _ctx: &()) -> garde::Result {
     Ok(())
 }
 
-/// The one username rule, shared by password registration and the SSO
-/// callback. Starts with a letter or digit, then letters, digits and dots; no
-/// `..`; at most 255 bytes. The SSO path must apply the same rule to whatever
-/// CAS returns -- a trailing space there once failed to match the caller's real
-/// row and provisioned a second, empty account under a name no form would have
-/// accepted.
+/// The username rule shared by password registration and the SSO callback:
+/// starts with a letter or digit, then letters, digits and dots; no `..`; at
+/// most 255 bytes.
 pub fn is_valid_username(value: &str) -> bool {
     USERNAME_REGEX.is_match(value) && !value.contains("..") && value.len() <= 255
 }
@@ -235,9 +232,8 @@ mod tests {
 
     #[test]
     fn rejects_surrounding_whitespace() {
-        // The exact shape that provisioned a duplicate account: the caller's
-        // real username with a trailing space. Callers trim before this check,
-        // so the trimmed form must pass and the raw form must fail.
+        // Callers trim before validating: the spaced form must fail and its
+        // trimmed form must pass.
         assert!(!is_valid_username("callysta.arviana "));
         assert!(!is_valid_username(" callysta.arviana"));
         assert!(is_valid_username("callysta.arviana".trim()));
