@@ -86,8 +86,31 @@ pub async fn handle_callback(
 
     tracing::debug!(username = %profile.username, "CAS ticket verified");
 
-    // Lookup or create local user
-    let username = &profile.username;
+    // Lookup or create local user.
+    //
+    // CAS returns the username verbatim. Trim it and hold it to the same rule
+    // as password registration before doing anything with it. A trailing space
+    // slipped through once: it did not match the caller's existing row, so this
+    // callback provisioned a whole second account (user, namespace and
+    // users_owners link) under "<name> ". The student's projects appeared to
+    // vanish -- they were signed into the empty duplicate -- and creating a
+    // project then failed the owner pattern, because the owner sent was the
+    // spaced username. Normalising here maps a stray space back onto the real
+    // account, and rejecting an invalid username stops such a row being created.
+    let username = profile.username.trim().to_string();
+    if !crate::auth::is_valid_username(&username) {
+        tracing::warn!(raw = %profile.username, "Rejecting SSO login: invalid username from CAS");
+        let json = serde_json::to_string(&ErrorResponse {
+            message: "SSO returned an invalid username".to_string(),
+            error_type: RegisterUserErrorType::SSOError,
+        })
+        .unwrap();
+        return Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .header("Content-Type", "application/json")
+            .body(Body::from(json))
+            .unwrap();
+    }
     let fullname = profile
         .attributes
         .as_ref()

@@ -163,6 +163,16 @@ fn password_check(value: &Secret<String>, _ctx: &()) -> garde::Result {
     Ok(())
 }
 
+/// The one username rule, shared by password registration and the SSO
+/// callback. Starts with a letter or digit, then letters, digits and dots; no
+/// `..`; at most 255 bytes. The SSO path must apply the same rule to whatever
+/// CAS returns -- a trailing space there once failed to match the caller's real
+/// row and provisioned a second, empty account under a name no form would have
+/// accepted.
+pub fn is_valid_username(value: &str) -> bool {
+    USERNAME_REGEX.is_match(value) && !value.contains("..") && value.len() <= 255
+}
+
 // why we use this and not the default garde regex match is becasue we need better error code until
 // https://github.com/jprochazk/garde/issues/7 is merged
 fn username_check(value: &str, _ctx: &()) -> garde::Result {
@@ -210,4 +220,37 @@ enum RegisterUserErrorType {
 struct ErrorResponse {
     message: String,
     error_type: RegisterUserErrorType,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_valid_username;
+
+    #[test]
+    fn accepts_ordinary_sso_usernames() {
+        assert!(is_valid_username("callysta.arviana"));
+        assert!(is_valid_username("budi.santoso"));
+        assert!(is_valid_username("aldo43"));
+    }
+
+    #[test]
+    fn rejects_surrounding_whitespace() {
+        // The exact shape that provisioned a duplicate account: the caller's
+        // real username with a trailing space. Callers trim before this check,
+        // so the trimmed form must pass and the raw form must fail.
+        assert!(!is_valid_username("callysta.arviana "));
+        assert!(!is_valid_username(" callysta.arviana"));
+        assert!(is_valid_username("callysta.arviana".trim()));
+        assert!(is_valid_username("callysta.arviana ".trim()));
+    }
+
+    #[test]
+    fn rejects_empty_traversal_and_bad_charset() {
+        assert!(!is_valid_username(""));
+        assert!(!is_valid_username("."));
+        assert!(!is_valid_username(".hidden"));
+        assert!(!is_valid_username("a..b"));
+        assert!(!is_valid_username("has space"));
+        assert!(!is_valid_username("emoji😀"));
+    }
 }
