@@ -163,6 +163,13 @@ fn password_check(value: &Secret<String>, _ctx: &()) -> garde::Result {
     Ok(())
 }
 
+/// The username rule shared by password registration and the SSO callback:
+/// starts with a letter or digit, then letters, digits and dots; no `..`; at
+/// most 255 bytes.
+pub fn is_valid_username(value: &str) -> bool {
+    USERNAME_REGEX.is_match(value) && !value.contains("..") && value.len() <= 255
+}
+
 // why we use this and not the default garde regex match is becasue we need better error code until
 // https://github.com/jprochazk/garde/issues/7 is merged
 fn username_check(value: &str, _ctx: &()) -> garde::Result {
@@ -210,4 +217,36 @@ enum RegisterUserErrorType {
 struct ErrorResponse {
     message: String,
     error_type: RegisterUserErrorType,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_valid_username;
+
+    #[test]
+    fn accepts_ordinary_sso_usernames() {
+        assert!(is_valid_username("callysta.arviana"));
+        assert!(is_valid_username("budi.santoso"));
+        assert!(is_valid_username("aldo43"));
+    }
+
+    #[test]
+    fn rejects_surrounding_whitespace() {
+        // Callers trim before validating: the spaced form must fail and its
+        // trimmed form must pass.
+        assert!(!is_valid_username("callysta.arviana "));
+        assert!(!is_valid_username(" callysta.arviana"));
+        assert!(is_valid_username("callysta.arviana".trim()));
+        assert!(is_valid_username("callysta.arviana ".trim()));
+    }
+
+    #[test]
+    fn rejects_empty_traversal_and_bad_charset() {
+        assert!(!is_valid_username(""));
+        assert!(!is_valid_username("."));
+        assert!(!is_valid_username(".hidden"));
+        assert!(!is_valid_username("a..b"));
+        assert!(!is_valid_username("has space"));
+        assert!(!is_valid_username("emoji😀"));
+    }
 }

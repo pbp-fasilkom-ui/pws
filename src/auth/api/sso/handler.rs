@@ -86,8 +86,23 @@ pub async fn handle_callback(
 
     tracing::debug!(username = %profile.username, "CAS ticket verified");
 
-    // Lookup or create local user
-    let username = &profile.username;
+    // Trim and validate the CAS username before any lookup or insert. Untrimmed,
+    // surrounding whitespace would not match an existing row and would create a
+    // duplicate account (user, namespace, link) under the spaced name.
+    let username = profile.username.trim().to_string();
+    if !crate::auth::is_valid_username(&username) {
+        tracing::warn!(raw = %profile.username, "Rejecting SSO login: invalid username from CAS");
+        let json = serde_json::to_string(&ErrorResponse {
+            message: "SSO returned an invalid username".to_string(),
+            error_type: RegisterUserErrorType::SSOError,
+        })
+        .unwrap();
+        return Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .header("Content-Type", "application/json")
+            .body(Body::from(json))
+            .unwrap();
+    }
     let fullname = profile
         .attributes
         .as_ref()
