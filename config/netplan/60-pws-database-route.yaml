@@ -1,0 +1,8 @@
+network:
+  version: 2
+  ethernets:
+    ens19:
+      routes:
+        - to: 10.119.106.139/32
+          via: 10.119.79.254
+          from: 10.119.79.101
