@@ -54,6 +54,9 @@ test -f .env
 image_ref="pws-server:$deployed_sha"
 previous_image="$(docker inspect --format '{{.Config.Image}}' "$container_name" 2>/dev/null || true)"
 
+echo "Ensuring the production database uses the internal route"
+"$repository_dir/scripts/install-db-route.sh"
+
 healthcheck() {
   curl --fail --silent --show-error \
     --connect-timeout 5 --max-time 10 \

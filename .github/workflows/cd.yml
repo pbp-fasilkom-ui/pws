@@ -130,7 +130,7 @@ jobs:
             -o ServerAliveInterval=15 \
             -o ServerAliveCountMax=3 \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            "cd -- '$DEPLOY_PATH' && ./scripts/deploy-local.sh '$EXPECTED_SHA'"
+            "cd -- '$DEPLOY_PATH' && ./scripts/deploy-local.sh '$EXPECTED_SHA' && ./scripts/install-db-route.sh"
 
       - name: Disconnect from production VPN
         if: always()

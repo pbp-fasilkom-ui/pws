@@ -98,7 +98,32 @@ cd /home/admin/pws
 ./scripts/deploy-local.sh [expected-commit-sha]
 ```
 
-The script verifies the checkout, fast-forward pulls `origin/master`, builds an image locally using Docker's build cache, recreates only the `server` service, verifies `/health`, and attempts to restore the previous image if the health check fails. The optional commit SHA prevents deploying a different `master` revision than the one selected by CD. The VM does not need GHCR credentials for this deployment flow.
+The script verifies the checkout, fast-forward pulls `origin/master`, installs the production database's internal route, builds an image locally using Docker's build cache, recreates only the `server` service, verifies `/health`, and attempts to restore the previous image if the health check fails. The optional commit SHA prevents deploying a different `master` revision than the one selected by CD. The VM does not need GHCR credentials for this deployment flow.
+
+### Production database route
+
+The production database at `10.119.106.139` is reachable from the VM's private
+interface through `10.119.79.254`. Without the explicit route, Linux selects the
+public default gateway and PostgreSQL refuses the connection. The deployment
+script installs `config/netplan/60-pws-database-route.yaml` into `/etc/netplan`
+before replacing the running PWS container. The deployment user therefore needs
+passwordless `sudo` access to `install`, `netplan`, `cmp`, `cat`, and `rm`.
+
+Check the active route without changing the host:
+
+```bash
+./scripts/install-db-route.sh --check
+```
+
+Install or repair it manually:
+
+```bash
+./scripts/install-db-route.sh
+```
+
+The installer validates the expected private interface address before making a
+change. If Netplan cannot apply the route, or the resulting route does not use
+the expected gateway, it restores the previous configuration.
 
 ### Security-related deployment requirements
 
