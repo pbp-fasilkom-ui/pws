@@ -122,7 +122,8 @@ Install or repair it manually:
 ```
 
 The installer validates the expected private interface address before making a
-change. If Netplan cannot apply the route, or the resulting route does not use
+change and waits briefly for `systemd-networkd` to activate the generated
+route. If Netplan cannot apply the route, or the resulting route does not use
 the expected gateway, it restores the previous configuration.
 
 ### Security-related deployment requirements

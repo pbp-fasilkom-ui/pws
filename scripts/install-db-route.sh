@@ -35,6 +35,17 @@ route_matches() {
     && [[ "$route" == *"src $source_address"* ]]
 }
 
+wait_for_route() {
+  local attempt
+  for attempt in {1..15}; do
+    if route_matches; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
 if [[ "$mode" == "--check" ]]; then
   if route_matches; then
     echo "Database route is active: $(ip -4 route get "$destination")"
@@ -108,7 +119,7 @@ if ! sudo -n netplan apply; then
   exit 1
 fi
 
-if ! route_matches; then
+if ! wait_for_route; then
   restore_config
   echo "The applied route does not use the expected gateway; the previous configuration was restored." >&2
   exit 1
