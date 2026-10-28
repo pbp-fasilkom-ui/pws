@@ -45,7 +45,7 @@ build:
   # in microseconds (100ms === 1 CPU allocation)
   cpums: 100000
   # in miliseconds
-  timeout: 120000
+  timeout: 600000
 
 container:
   cpu: 0.5
