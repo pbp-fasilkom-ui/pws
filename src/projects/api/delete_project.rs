@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use std::fs::File;
 
+use axum::body::Body;
 use axum::extract::{Path, State};
+use axum::http::StatusCode;
 use axum::response::Response;
 use bollard::container::{RemoveContainerOptions, StopContainerOptions};
 use bollard::Docker;
-use hyper::{Body, StatusCode};
 use serde::Serialize;
 
 use crate::auth::Auth;

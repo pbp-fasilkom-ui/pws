@@ -5,7 +5,7 @@ use std::{
     thread::available_parallelism,
 };
 
-use axum_session::{Key, SameSite, SecurityMode, SessionConfig};
+use axum_session::{Key, SameSite, SessionConfig};
 use byte_unit::Byte;
 use chrono::Duration;
 use config::{Config, ConfigError};
@@ -105,7 +105,7 @@ pub fn get_configuration() -> Result<Settings, ConfigError> {
         .set_default("auth.httponly", true)?
         .set_default("auth.secure", true)?
         .set_default("auth.maxlifespan", 365)?
-        .set_default("build.timeout", 120000)?
+        .set_default("build.timeout", 600000)?
         .set_default("container.cpu", 0.5)?
         .set_default("container.memory", "256M")?
         .set_default("container.swap", "320M")?
@@ -185,7 +185,7 @@ impl Settings {
 
         SessionConfig::default()
             .with_lifetime(Duration::hours(self.auth.lifespan))
-            .with_cookie_name(self.auth.cookiename.clone())
+            .with_session_name(self.auth.cookiename.clone())
             .with_max_age(Some(Duration::days(self.auth.maxage)))
             .with_http_only(self.auth.httponly)
             .with_secure(self.auth.secure)
@@ -203,7 +203,6 @@ impl Settings {
             // health check would report success through a total outage.
             .with_key(key.clone())
             .with_database_key(key)
-            .with_security_mode(SecurityMode::PerSession)
     }
 
     pub fn container_memory_bytes(&self) -> Result<i64, ConfigError> {

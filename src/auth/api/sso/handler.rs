@@ -5,9 +5,10 @@ use crate::{
 };
 use argon2::password_hash::{rand_core::OsRng, rand_core::RngCore, SaltString};
 use argon2::{Argon2, PasswordHasher};
+use axum::body::Body;
 use axum::extract::{Json, State};
+use axum::http::{Response, StatusCode};
 use garde::Unvalidated;
-use hyper::{Body, Response, StatusCode};
 use serde_json::json;
 use sqlx::PgPool;
 use std::collections::HashSet;

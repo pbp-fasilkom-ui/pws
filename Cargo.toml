@@ -9,18 +9,21 @@ edition = "2021"
 anyhow = "1.0.75"
 argon2 = "0.5.2"
 async-trait = "0.1.74"
-axum = { version = "0.6.20", features = [
+axum = { version = "0.8.9", features = [
   "tracing",
   "json",
   "tokio",
   "tower-log",
   "form",
-  "headers",
+  "http1",
+  "http2",
+  "macros",
   "ws",
 ] }
-axum-extra = { version = "0.8.0", features = ["typed-routing"] }
-axum_session = "0.6.1"
-axum_session_auth = "0.6.0"
+axum-extra = { version = "0.12.6", features = ["typed-routing", "typed-header"] }
+axum_session = "0.20.1"
+axum_session_auth = "0.20.0"
+axum_session_sqlx = { version = "0.9.0", features = ["postgres", "tls-rustls"] }
 badgen = "0.1.0"
 bollard = "0.15.0"
 byte-unit = "4.0.19"
@@ -35,14 +38,14 @@ futures-util = "0.3.28"
 garde = { version = "0.15.0", features = ["regex"] }
 git2 = "0.18.1"
 http-body = "0.4.5"
-hyper = { version = "0.14.27", features = ["server", "full"] }
+hyper = { version = "1.11.1", features = ["server", "full"] }
 lazy_static = "1.4.0"
 password-hash = "0.5.0"
 procfile = { version = "0.2.1", default-features = false, features = ["serde"] }
 quick-xml = { version = "0.41", features = ["serialize"] }
 rand = "0.8.5"
 regex = "1.10.1"
-reqwest = { version = "0.11.22", default-features = false, features = ["rustls-tls", "tokio-rustls", "serde_json", "json", "cookies"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "cookies"] }
 secrecy = { version = "0.8.0", features = ["serde"] }
 serde = { version = "1.0.189", features = ["derive"] }
 serde_json = "1.0.107"
@@ -54,7 +57,7 @@ time = { version = "0.3.35", features=["macros", "formatting", "local-offset"]}
 tokio = { version = "1.33.0", features = ["full"] }
 tokio-util = "0.7.9"
 tower = { version = "0.4.13", features = ["tokio"] }
-tower-http = { version = "0.4.4", features = ["full", "trace"] }
+tower-http = { version = "0.7.1", features = ["full", "trace"] }
 tracing = "0.1.39"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter", "json"] }
 ulid = { version = "1.1.0", features = ["uuid", "postgres", "serde"] }
@@ -62,7 +65,7 @@ url = "2.4.1"
 uuid = "1.4.1"
 
 [dependencies.sqlx]
-version = "0.7.2"
+version = "0.8.6"
 default-features = false
 features = [
   "postgres",

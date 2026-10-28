@@ -1,9 +1,10 @@
+use axum::body::Body;
+use axum::http::StatusCode;
 use axum::{
     extract::{Path, Query, State},
     response::Response,
 };
 use git2::{ObjectType, Repository};
-use hyper::{Body, StatusCode};
 use serde::Serialize;
 use std::path::Path as StdPath;
 

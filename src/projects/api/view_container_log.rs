@@ -1,9 +1,10 @@
+use axum::body::Body;
 use axum::extract::{Path, State};
+use axum::http::StatusCode;
 use axum::response::Response;
 use bollard::container::{LogOutput, LogsOptions};
 use bollard::Docker;
 use futures::StreamExt;
-use hyper::{Body, StatusCode};
 use serde::Serialize;
 use uuid::Uuid;
 

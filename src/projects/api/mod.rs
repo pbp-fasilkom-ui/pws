@@ -1,10 +1,10 @@
+use axum::body::Body;
 use axum::{
     middleware,
     routing::{get, post},
     Router,
 };
 use axum_extra::routing::RouterExt;
-use hyper::Body;
 
 use crate::{auth::auth, configuration::Settings, startup::AppState};
 
@@ -30,84 +30,84 @@ mod view_project_refs;
 mod view_project_tree;
 mod web_terminal;
 
-pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState, Body> {
+pub async fn router(_state: AppState, _config: &Settings) -> Router<AppState> {
     Router::new()
         .route_with_tsr("/api/project/new", post(create_project::post))
         .route_with_tsr(
-            "/api/project/:owner/:project/access",
+            "/api/project/{owner}/{project}/access",
             get(check_project_access::get),
         )
         .route_with_tsr(
-            "/api/project/:owner/:project/builds",
+            "/api/project/{owner}/{project}/builds",
             get(project_dashboard::get),
         )
         .route_with_tsr(
-            "/api/project/:owner/:project/logs",
+            "/api/project/{owner}/{project}/logs",
             get(view_container_log::get),
         )
         .route_with_tsr(
-            "/api/project/:owner/:project/env",
+            "/api/project/{owner}/{project}/env",
             get(view_project_environ::get).post(update_project_environ::post),
         )
         .route_with_tsr(
-            "/api/project/:owner/:project/env/bulk",
+            "/api/project/{owner}/{project}/env/bulk",
             post(bulk_update_project_environ::post),
         )
         .route_with_tsr(
-            "/api/project/:owner/:project/env/delete",
+            "/api/project/{owner}/{project}/env/delete",
             post(delete_project_environ::post),
         )
         .route_with_tsr(
-            "/api/project/:owner/:project/builds/:build_id",
+            "/api/project/{owner}/{project}/builds/{build_id}",
             get(view_build_log::get),
         )
         .route_with_tsr(
-            "/api/project/:owner/:project/builds/:build_id/events",
+            "/api/project/{owner}/{project}/builds/{build_id}/events",
             get(stream_build_log::get),
         )
         .route_with_tsr(
-            "/api/project/:owner/:project/delete",
+            "/api/project/{owner}/{project}/delete",
             post(delete_project::post),
         )
         .route_with_tsr(
-            "/api/project/:owner/:project/volume/delete",
+            "/api/project/{owner}/{project}/volume/delete",
             post(delete_volume::post),
         )
         .route_with_tsr(
-            "/api/project/:owner/:project/terminal/ws",
+            "/api/project/{owner}/{project}/terminal/ws",
             get(web_terminal::ws),
         )
         .route_with_tsr(
-            "/api/project/:owner/:project/git-credentials",
+            "/api/project/{owner}/{project}/git-credentials",
             get(get_git_credentials::get),
         )
         .route_with_tsr(
-            "/api/project/:owner/:project/regenerate-git-password",
+            "/api/project/{owner}/{project}/regenerate-git-password",
             post(regenerate_git_password::post),
         )
         .route_with_tsr(
-            "/api/project/:owner/:project/redeploy",
+            "/api/project/{owner}/{project}/redeploy",
             post(redeploy_project::post),
         )
         .route_with_tsr(
-            "/api/project/:owner/:project/tree",
+            "/api/project/{owner}/{project}/tree",
             get(view_project_tree::get),
         )
         .route_with_tsr(
-            "/api/project/:owner/:project/refs",
+            "/api/project/{owner}/{project}/refs",
             get(view_project_refs::get),
         )
         .route_with_tsr(
-            "/api/project/:owner/:project/file",
+            "/api/project/{owner}/{project}/file",
             get(view_project_file::get),
         )
         .route_layer(middleware::from_fn(auth))
         .route_with_tsr(
-            "/api/project/:owner/:project/badge/status",
+            "/api/project/{owner}/{project}/badge/status",
             get(generate_status_badge::get),
         )
         .route_with_tsr(
-            "/api/project/:owner/:project/status",
+            "/api/project/{owner}/{project}/status",
             get(get_project_status::get),
         )
 }

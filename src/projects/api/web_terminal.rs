@@ -5,15 +5,15 @@ use axum::{
         ws::{CloseFrame, Message},
         ConnectInfo, Path, State, WebSocketUpgrade,
     },
-    headers,
     http::StatusCode,
     response::IntoResponse,
-    TypedHeader,
 };
+use axum_extra::{headers, TypedHeader};
 use bollard::{
     exec::{CreateExecOptions, StartExecResults},
     Docker,
 };
+use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
@@ -91,7 +91,7 @@ pub async fn ws(
     ws.on_upgrade(move |mut socket| {
         async move {
             //send a ping (unsupported by some browsers) just to kick things off and get a response
-            if socket.send(Message::Ping(vec![])).await.is_ok() {
+            if socket.send(Message::Ping(Bytes::new())).await.is_ok() {
                 tracing::debug!(?who, "Pinged");
             } else {
                 tracing::debug!(?who, "Could not send ping");
@@ -167,7 +167,7 @@ pub async fn ws(
 
                     tokio::select! {
                         _ = tokio::time::sleep(Duration::from_secs(10)) => {
-                            if sender.send(Message::Ping(vec![])).await.is_err() {
+                            if sender.send(Message::Ping(Bytes::new())).await.is_err() {
                                 break;
                             }
                         },
@@ -179,7 +179,7 @@ pub async fn ws(
                                     let msg = String::from_utf8_lossy(&bytes);
 
                                     if sender
-                                        .send(Message::Text(format!("{msg}")))
+                                        .send(Message::Text(msg.to_string().into()))
                                         .await
                                         .is_err()
                                     {
@@ -205,7 +205,7 @@ pub async fn ws(
                 if let Err(e) = sender
                     .send(Message::Close(Some(CloseFrame {
                         code: axum::extract::ws::close_code::NORMAL,
-                        reason: Cow::from("Goodbye"),
+                        reason: "Goodbye".into(),
                     })))
                     .await
                 {
