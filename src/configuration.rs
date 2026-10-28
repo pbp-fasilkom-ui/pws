@@ -26,6 +26,16 @@ pub struct Settings {
 pub struct BuilderSettings {
     pub max: usize,
     pub timeout: usize,
+    /// Package index builds install Python packages from, passed as
+    /// `PIP_INDEX_URL` (and `UV_DEFAULT_INDEX`). Must be reachable from inside
+    /// a `docker build` step. Unset to install straight from PyPI.
+    ///
+    /// No underscore in the name: the environment source splits on `_`, so
+    /// `pip_index` could not be set as `BUILD_PIP_INDEX`.
+    pub pipindex: Option<String>,
+    /// Alpine package mirror replacing `https://dl-cdn.alpinelinux.org/alpine`
+    /// in builds, passed as `APK_MIRROR`. Unset to use the Alpine CDN.
+    pub apkmirror: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

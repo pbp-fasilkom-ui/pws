@@ -58,8 +58,17 @@ FROM python:3.13-alpine AS builder
 
 WORKDIR /app
 
+# Package caches on the build host, when PWS passes them (src/package_cache.rs).
+# Empty means downloading from PyPI and the Alpine CDN directly.
+ARG APK_MIRROR
+ARG PIP_INDEX_URL
+ARG PIP_TRUSTED_HOST
+
 # Install build dependencies
-RUN apk add --no-cache gcc musl-dev
+RUN if [ -n "$APK_MIRROR" ]; then \
+        sed -i -E "s#^https?://dl-cdn.alpinelinux.org/alpine#$APK_MIRROR#" /etc/apk/repositories; \
+    fi \
+    && apk add --no-cache gcc musl-dev
 
 # Install Python packages
 COPY requirements.txt .
@@ -141,6 +150,20 @@ mod tests {
         // The payload survives as data on one line, not as directives.
         assert!(!generated.contains("\nUSER root"));
         assert!(!generated.contains("\nRUN curl"));
+    }
+
+    #[test]
+    fn package_cache_args_stay_in_the_builder_stage() {
+        let generated = DjangoDockerfile::new().generate();
+        let (builder, runtime) = generated.split_once("AS runtime").unwrap();
+
+        for arg in ["APK_MIRROR", "PIP_INDEX_URL", "PIP_TRUSTED_HOST"] {
+            assert!(
+                builder.contains(&format!("ARG {arg}\n")),
+                "{arg} not declared"
+            );
+            assert!(!runtime.contains(arg), "{arg} leaks into the runtime image");
+        }
     }
 
     #[test]

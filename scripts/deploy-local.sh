@@ -95,6 +95,14 @@ if ! PWS_IMAGE="$image_ref" docker compose run --rm --no-deps \
   exit 1
 fi
 
+# Package caches for project builds. Not fatal: a build skips a cache that is
+# down and downloads from upstream, so failing here would only block the
+# server deploy for something builds already work without.
+echo "Starting package caches"
+if ! docker compose --profile pkgcache up -d --build --no-deps pkgcache-pypi pkgcache-apk; then
+  echo "Package caches failed to start; builds will download from upstream." >&2
+fi
+
 echo "Starting $service_name with $image_ref"
 if ! PWS_IMAGE="$image_ref" docker compose up -d --no-build --no-deps "$service_name"; then
   echo "Container restart failed; attempting rollback." >&2

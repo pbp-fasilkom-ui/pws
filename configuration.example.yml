@@ -46,6 +46,11 @@ build:
   cpums: 100000
   # in miliseconds
   timeout: 600000
+  # Package caches builds install from, reachable from inside `docker build`.
+  # See the pkgcache services in docker-compose.yml. Leave unset to download
+  # straight from PyPI and the Alpine CDN.
+  # pipindex: http://172.32.0.1:3141/root/pypi/+simple/
+  # apkmirror: http://172.32.0.1:3142/alpine
 
 container:
   cpu: 0.5

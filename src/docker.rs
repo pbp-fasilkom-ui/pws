@@ -1,7 +1,9 @@
 use std::{collections::HashMap, process::Stdio, sync::Arc};
 
 use crate::build_logs::BuildLogState;
-use crate::{configuration::Settings, dockerfile_templates::DjangoDockerfile, get_env};
+use crate::{
+    configuration::Settings, dockerfile_templates::DjangoDockerfile, get_env, package_cache,
+};
 use anyhow::Result;
 use bollard::network::DisconnectNetworkOptions;
 use bollard::{
@@ -147,6 +149,13 @@ pub async fn build_docker(
 
     tracing::info!("BUILDING START");
 
+    let cache_args = package_cache::build_args(&config.build).await;
+    let is_project_variable = |name: &str| {
+        envs.environs
+            .as_object()
+            .is_some_and(|map| map.contains_key(name))
+    };
+
     match std::path::Path::new(container_src)
         .join("Dockerfile")
         .exists()
@@ -178,6 +187,17 @@ pub async fn build_docker(
                 tracing::debug!(container_name, "Added {} build args", env_map.len());
             }
 
+            // Only the cache args this Dockerfile opts into with ARG. Unread
+            // means none, which builds exactly as before.
+            let dockerfile =
+                std::fs::read_to_string(std::path::Path::new(container_src).join("Dockerfile"))
+                    .unwrap_or_default();
+            for (name, value) in package_cache::select(cache_args, &dockerfile, is_project_variable)
+            {
+                args.push("--build-arg".to_string());
+                args.push(format!("{name}={value}"));
+            }
+
             args.push(container_src.to_string());
             cmd.args(&args)
                 .stdin(Stdio::piped())
@@ -207,7 +227,7 @@ pub async fn build_docker(
             let build_uuid = uuid::Uuid::new_v4();
             let dockerfile_path =
                 temp_dir.join(format!("Dockerfile.{}.{}.tmp", container_name, build_uuid));
-            std::fs::write(&dockerfile_path, dockerfile_content).map_err(|err| {
+            std::fs::write(&dockerfile_path, &dockerfile_content).map_err(|err| {
                 tracing::error!("Failed to write temporary Dockerfile: {}", err);
                 err
             })?;
@@ -227,11 +247,16 @@ pub async fn build_docker(
                 &image_name,
                 "-f",
                 dockerfile_path.to_str().unwrap(),
-                container_src,
-            ])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            ]);
+            for (name, value) in
+                package_cache::select(cache_args, &dockerfile_content, is_project_variable)
+            {
+                cmd.arg("--build-arg").arg(format!("{name}={value}"));
+            }
+            cmd.arg(container_src)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
 
             let build_result = stream_command_output(cmd, log_state.clone()).await;
 

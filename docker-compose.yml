@@ -51,6 +51,11 @@ services:
       # build.timeout in milliseconds. Set here so the deployed value follows
       # master; it overrides configuration.yml and .env on the host.
       - "BUILD_TIMEOUT=600000"
+      # Package caches below, as `docker build` steps reach them. A build skips
+      # a cache that is not accepting connections, so these are harmless where
+      # the pkgcache services are not running.
+      - "BUILD_PIPINDEX=http://${PKGCACHE_BIND:-172.32.0.1}:3141/root/pypi/+simple/"
+      - "BUILD_APKMIRROR=http://${PKGCACHE_BIND:-172.32.0.1}:3142/alpine"
     volumes:
       - ./configuration.yml:/app/configuration.yml
       # Needs write access to build and run project containers.
@@ -85,6 +90,60 @@ services:
       - "traefik.http.routers.pws-app.tls.certresolver=letsencrypt"
       - "traefik.http.routers.pws-app.service=pws"
       - "traefik.http.services.pws.loadbalancer.server.port=8080"
+
+  # Package caches for project builds (src/package_cache.rs). From the
+  # production host, PyPI and the Alpine CDN -- both on Fastly -- often crawl
+  # at a few hundred KB/s, which pushed builds past the build timeout. These
+  # download each package once.
+  #
+  # Published on the default bridge's gateway, 172.32.0.1 in production
+  # (`bip` in /etc/docker/daemon.json): that is the address a `docker build`
+  # step can reach, since build steps run on the default bridge rather than on
+  # any compose network. Not on 0.0.0.0, so nothing outside the host sees them.
+  # Project containers can reach them too; both are read-only to anonymous
+  # clients.
+  #
+  # Behind a profile so a plain `docker compose up` elsewhere, where
+  # 172.32.0.1 does not exist, is unaffected. Set PKGCACHE_BIND to try them
+  # locally. scripts/deploy-local.sh starts them in production.
+  pkgcache-pypi:
+    container_name: pkgcache-pypi-pemasak
+    profiles: ["pkgcache"]
+    image: pws-pkgcache-pypi:6.21.0
+    build:
+      context: ./config/pkgcache/devpi
+    restart: always
+    networks:
+      - pkgcache
+    ports:
+      - "${PKGCACHE_BIND:-172.32.0.1}:3141:3141"
+    volumes:
+      - pkgcache-pypi:/data
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+
+  pkgcache-apk:
+    container_name: pkgcache-apk-pemasak
+    profiles: ["pkgcache"]
+    image: nginx:1.28-alpine
+    restart: always
+    networks:
+      - pkgcache
+    ports:
+      - "${PKGCACHE_BIND:-172.32.0.1}:3142:3142"
+    volumes:
+      - ./config/pkgcache/apk/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - pkgcache-apk:/var/cache/nginx/apk
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   # Skip monitoring stack for Windows (Optional)
   prometheus:
@@ -309,6 +368,10 @@ volumes:
     driver: local
   portainer-data:
     driver: local
+  pkgcache-pypi:
+    driver: local
+  pkgcache-apk:
+    driver: local
 
 networks:
   # Project containers live here, along with Traefik so it can route them.
@@ -332,3 +395,8 @@ networks:
       driver: default
       config:
         - subnet: 172.21.0.0/16
+
+  # Package caches only: they need the internet and nothing else here.
+  pkgcache:
+    name: pkgcache
+    driver: bridge
