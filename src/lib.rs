@@ -46,6 +46,7 @@ pub mod dockerfile_templates;
 pub mod get_env;
 pub mod git;
 pub mod owner;
+pub mod package_cache;
 pub mod projects;
 pub mod queue;
 pub mod rate_limit;
