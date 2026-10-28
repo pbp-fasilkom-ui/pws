@@ -48,6 +48,9 @@ services:
       - "127.0.0.1:8080:8080"
     environment:
       - "GIT_BASE=./git-repo"
+      # build.timeout in milliseconds. Set here so the deployed value follows
+      # master; it overrides configuration.yml and .env on the host.
+      - "BUILD_TIMEOUT=600000"
     volumes:
       - ./configuration.yml:/app/configuration.yml
       # Needs write access to build and run project containers.

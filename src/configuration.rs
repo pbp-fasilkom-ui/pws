@@ -105,7 +105,7 @@ pub fn get_configuration() -> Result<Settings, ConfigError> {
         .set_default("auth.httponly", true)?
         .set_default("auth.secure", true)?
         .set_default("auth.maxlifespan", 365)?
-        .set_default("build.timeout", 120000)?
+        .set_default("build.timeout", 600000)?
         .set_default("container.cpu", 0.5)?
         .set_default("container.memory", "256M")?
         .set_default("container.swap", "320M")?
