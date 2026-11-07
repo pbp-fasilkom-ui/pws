@@ -269,6 +269,7 @@ services:
   traefik:
     container_name: traefik-pemasak
     image: traefik:v3.6
+    restart: always
     env_file: .env
     command: 
       # The API and dashboard were served with no authentication at all, and
