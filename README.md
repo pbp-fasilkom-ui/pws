@@ -70,6 +70,36 @@ to make sure the project won't ran out of ip. This is important for deploying a 
 7. Run `./scripts/env.sh > .env` to generate the environment variable.
 8. Run `docker compose up -d` to start the server. This will take a while.
 
+### Production outage recovery
+
+Start by checking whether the host still accepts SSH and whether ports 80 and
+443 are listening. If SSH works but both public ports refuse connections, check
+Docker before restarting individual containers:
+
+```bash
+sudo systemctl status docker --no-pager
+sudo docker compose ps -a
+sudo ss -lntp | grep -E ':(80|443)[[:space:]]'
+```
+
+Docker stores its state under `/var/lib/docker`. On the production VM,
+`/var/lib` may be a separate volume. Treat `Input/output error`, an offline
+block device, or an unreadable `/var/lib` as a storage incident. Do not delete
+Docker data or repeatedly restart the daemon. Confirm the mount and kernel
+errors instead:
+
+```bash
+findmnt /var/lib
+lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINTS,RO
+sudo dmesg --level=emerg,alert,crit,err,warn | tail -n 100
+```
+
+Restore or reattach the volume through the VM platform, repair the filesystem
+offline if the platform reports corruption, and then start Docker. Run
+`docker compose up -d` from the deployment checkout after Docker is healthy.
+Traefik uses an `always` restart policy so ports 80 and 443 return automatically
+after an ordinary Docker or VM restart.
+
 ### Common Issue for deployment
 
 1. If the deployment can't run, add procfile to the root of the project. For django its
